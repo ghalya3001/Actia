@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, ChevronRight, ChevronLeft, Upload, CheckCircle, AlertTriangle, FileText, Shield, Flame, HardHat } from 'lucide-react';
+import { ArrowLeft, ChevronRight, ChevronLeft, Upload, CheckCircle, AlertTriangle, FileText, Shield, Flame, HardHat, Camera, X } from 'lucide-react';
 
 const AUDIT_QUESTIONS_DATA = [
   // SECTION 1
@@ -9,13 +9,13 @@ const AUDIT_QUESTIONS_DATA = [
   { id: 4, sec: 1, text: "L'affichage des EPI est respecté ?" },
   { id: 5, sec: 1, text: "La fréquence du changement des EPI est-elle respectée ?" },
   { id: 6, sec: 1, text: "Contrôle de l'état de conditionnement des EPIs" },
-  { id: 7, sec: 1, text: "Présence d'une armoire de stockage des EPIs" },
+  { id: 7, sec: 1, text: "Présence d'une armoire de stockage des EPIs (masque à cartouche, gants, lunette et etc)" },
   // SECTION 2
   { id: 8, sec: 2, text: "L'opérateur sur poste est-il sensibilisé sur les risques dans la zone de travail ?" },
-  { id: 9, sec: 2, text: "L'opérateur sur poste connaît-il les instructions et les pictogrammes de santé, sécurité (FDSS) ?" },
+  { id: 9, sec: 2, text: "L'opérateur sur poste connaît-il les instructions et les pictogrammes de santé, sécurité et environnement (FDSS) dans la zone de travail ?" },
   { id: 10, sec: 2, text: "Les FDSS sont elles mises à disposition et affichées dans chaque poste de travail ?" },
-  { id: 11, sec: 2, text: "L'opérateur sur poste connaît l'emploi correct de leurs EPI ?" },
-  { id: 12, sec: 2, text: "L'opérateur sur poste sait intervenir lors d'un accident ?" },
+  { id: 11, sec: 2, text: "L'opérateur sur poste connaît l'emploi correct de leurs équipements de protection individuelle ?" },
+  { id: 12, sec: 2, text: "L'opérateur sur poste sait intervenir lors d'un accident (Exemple : Déversement d'un produit chimique...)" },
   // SECTION 3
   { id: 13, sec: 3, text: "Standard 5 S est il respecté ?" },
   { id: 14, sec: 3, text: "L'aspiration et l'extraction à la source est-elle fonctionnelle ?" },
@@ -32,57 +32,62 @@ const AUDIT_QUESTIONS_DATA = [
   { id: 25, sec: 3, text: "les réfectoires sont nettoyés et la fréquence de nettoyage est respectée" },
   { id: 26, sec: 3, text: "les zones fumeurs sont bien respectées" },
   // SECTION 4
-  { id: 27, sec: 4, text: "Les Équipements de travail sont conformes ?" },
+  { id: 27, sec: 4, text: "Les Équipements de travail sont conformes (présence des béchers , pinceau...) ?" },
   { id: 28, sec: 4, text: "Toutes les machines sont équipées de leurs caches de sécurité ?" },
-  { id: 29, sec: 4, text: "Les modes opératoires sont-ils affichés et mis à disposition ?" },
+  { id: 29, sec: 4, text: "Les modes opératoires sont-ils affichés et mis à disposition des travailleurs ?" },
   { id: 30, sec: 4, text: "Le planning et la maintenance préventive des machines sont ils respectés ?" },
   // SECTION 5
   { id: 31, sec: 5, text: "Les extincteurs sont identifiés ?" },
   { id: 32, sec: 5, text: "Les extincteurs sont vérifiés ?" },
-  { id: 33, sec: 5, text: "Les extincteurs sont accessibles ?" },
-  { id: 34, sec: 5, text: "Les RIA sont vérifiés et fonctionnel ?" },
-  { id: 35, sec: 5, text: "Les RIA sont accessibles ?" },
-  { id: 36, sec: 5, text: "les moyens de lutte contre l'incendie sont disponibles ?" },
+  { id: 33, sec: 5, text: "Les extincteurs sont accessibles (Hauteur, Dans un emplacement dégagé...)" },
+  { id: 34, sec: 5, text: "Les RIA sont vérifiés et fonctionnel (avec débit d'eau...)?" },
+  { id: 35, sec: 5, text: "Les RIA sont accessibles (Hauteur, Dans un emplacement dégagé...)" },
+  { id: 36, sec: 5, text: "les moyens de lutte contre l'incendie sont disponibles selon le plan d'évacuation ?" },
   { id: 37, sec: 5, text: "les issues de secours sont dégagées ?" },
   { id: 38, sec: 5, text: "l'alarme de l'issue de secours est fonctionnelle ?" },
   { id: 39, sec: 5, text: "le BAES est en bonne état de fonctionnement !" },
-  { id: 40, sec: 5, text: "Les panneaux d'évacuation sont visibles et disponible ?" },
+  { id: 40, sec: 5, text: "Les panneaux d'évacuation sont visibles et disponible selon le plan d'évacuation ?" },
   // SECTION 6
   { id: 41, sec: 6, text: "La boîte pharmacie est disponible et équipée ?" },
   { id: 42, sec: 6, text: "La liste des secouristes est affichée et à jour" },
   { id: 43, sec: 6, text: "La Liste des Guides file-Serres file est affiché et à jour" },
   // SECTION 7
-  { id: 44, sec: 7, text: "Les postes de travail sont adaptés à la morphologie des opérateurs ?" },
-  { id: 45, sec: 7, text: "Les mouvements répétitifs sont identifiés et évalués ?" },
-  { id: 46, sec: 7, text: "Les manutentions manuelles sont évaluées ?" },
-  { id: 47, sec: 7, text: "L'espace de travail permet des déplacements sécurisés ?" },
-  { id: 48, sec: 7, text: "L'écran informatique est positionné à hauteur des yeux ?" },
-  { id: 49, sec: 7, text: "Les outils et matériels sont rangés à portée de main ?" },
-  { id: 50, sec: 7, text: "L'éclairage est suffisant et adapté ?" },
+  { id: 44, sec: 7, text: "Les postes de travail sont adaptés à la morphologie des opérateurs (hauteur de table, siège, plans de travail réglables) ?" },
+  { id: 45, sec: 7, text: "Les mouvements répétitifs sont identifiés et évalués (répétitivité) ?" },
+  { id: 46, sec: 7, text: "Les manutentions manuelles sont évaluées (poids, fréquence, posture) ?" },
+  { id: 47, sec: 7, text: "L'espace de travail permet des déplacements sécurisés et sans contorsions ?" },
+  { id: 48, sec: 7, text: "L'écran informatique est positionné à hauteur des yeux, à distance adéquate ?" },
+  { id: 49, sec: 7, text: "Les outils et matériels sont rangés à portée de main pour éviter les contraintes posturales ?" },
+  { id: 50, sec: 7, text: "L'éclairage est suffisant et adapté (pas d'éblouissement, pas d'effet d'ombre) ?" },
   { id: 51, sec: 7, text: "Les opérateurs bénéficient d'une formation aux gestes et postures ?" }
 ];
 
 const TOURNEE_HSE_QUESTIONS_DATA = [
-  { id: 101, sec: 1, text: "Port des EPI conforme" },
+  // SECTION 1: Sécurité Générale
+  { id: 101, sec: 1, text: "Port des EPI conforme (casque, chaussures, lunettes, gants, etc.)" },
   { id: 102, sec: 1, text: "Présence et lisibilité de la signalisation" },
   { id: 103, sec: 1, text: "Voies de circulation dégagées" },
   { id: 104, sec: 1, text: "Équipements de protection collective fonctionnels" },
   { id: 105, sec: 1, text: "Respect des procédures internes" },
-  { id: 106, sec: 2, text: "Stockage conforme des produits chimiques" },
+  // SECTION 2: Produits Chimiques
+  { id: 106, sec: 2, text: "Stockage conforme (Local produits chimique, magasin PDR, Armoires Vagues)" },
   { id: 107, sec: 2, text: "FDS disponibles sur site" },
   { id: 108, sec: 2, text: "Bac de rétention présent et propre" },
   { id: 109, sec: 2, text: "Étiquetage CLP conforme" },
   { id: 110, sec: 2, text: "Manipulation avec EPI adaptés" },
   { id: 111, sec: 2, text: "Plan d'urgence ou douche/lave-œil disponible" },
+  // SECTION 3: Zone ATEX
   { id: 112, sec: 3, text: "Matériel certifié ATEX" },
   { id: 113, sec: 3, text: "Mise à la terre des équipements" },
   { id: 114, sec: 3, text: "Absence d'étincelles / sources d'ignition" },
   { id: 115, sec: 3, text: "Signalisation zone ATEX visible" },
   { id: 116, sec: 3, text: "Procédures spécifiques connues par le personnel" },
+  // SECTION 4: Maintenance
   { id: 117, sec: 4, text: "Verrouillage physique des sources d'énergie" },
   { id: 118, sec: 4, text: "Étiquettes de consignation en place" },
   { id: 119, sec: 4, text: "Formation et habilitation du personnel" },
   { id: 120, sec: 4, text: "Absence d'intervention sans autorisation" },
+  // SECTION 5: Sécurité Incendie
   { id: 121, sec: 5, text: "Extincteurs accessibles et vérifiés" },
   { id: 122, sec: 5, text: "RIA dégagés et opérants" },
   { id: 123, sec: 5, text: "Permis de feu obligatoire si travaux en flamme" },
@@ -90,18 +95,21 @@ const TOURNEE_HSE_QUESTIONS_DATA = [
   { id: 125, sec: 5, text: "Surpresseur réseau RIA sous tension" },
   { id: 126, sec: 5, text: "Surpresseur réseau RIA en mode automatique" },
   { id: 127, sec: 5, text: "Niveau d'eau dans la bâche à eau" },
+  // SECTION 6: Évacuation
   { id: 128, sec: 6, text: "Les Issues de secours accessibles" },
-  { id: 129, sec: 6, text: "Les issues de secours sont équipées de manettes anti-panique" },
+  { id: 129, sec: 6, text: "Les issues de secours sont équipées par les manettes anti-panique" },
   { id: 130, sec: 6, text: "Les sirènes des issues de secours sont fonctionnelles" },
   { id: 131, sec: 6, text: "Plan d'évacuation affiché" },
-  { id: 132, sec: 7, text: "Postes adaptés" },
+  // SECTION 7: Ergonomie
+  { id: 132, sec: 7, text: "Postes adaptés (hauteur / support)" },
   { id: 133, sec: 7, text: "Gestes répétitifs identifiés" },
   { id: 134, sec: 7, text: "Aides à la manutention disponibles" },
   { id: 135, sec: 7, text: "Formation gestes et postures effectuée" },
-  { id: 136, sec: 7, text: "L'écran informatique est positionné à hauteur des yeux" },
-  { id: 137, sec: 7, text: "Les outils et matériels sont rangés à portée de hand" },
-  { id: 138, sec: 8, text: "Tri conforme des déchets" },
-  { id: 139, sec: 8, text: "Conteneurs de collectes adaptés et étiquetés" },
+  { id: 136, sec: 7, text: "L'écran informatique est positionné à hauteur des yeux, à distance adéquate ?" },
+  { id: 137, sec: 7, text: "Les outils et matériels sont rangés à portée de main pour éviter les contraintes posturales ?" },
+  // SECTION 8: Gestion des Déchets
+  { id: 138, sec: 8, text: "Tri conforme (DIB, Carton, Plastique, dangereux, etc.)" },
+  { id: 139, sec: 8, text: "Conteneurs de collectes des déchets sont adaptés et étiquetés" },
   { id: 140, sec: 8, text: "Stockage temporaire sécurisé" },
   { id: 141, sec: 8, text: "Traçabilité / registre des déchets" },
   { id: 142, sec: 8, text: "Absence de débordement / fuite" }
@@ -170,7 +178,7 @@ export default function AuditWizard({ formType, editingAudit, onClose, onSubmitS
     const reader = new FileReader();
     reader.onload = (e) => {
       updateAnswer(qId, 'photo', e.target.result);
-      showToast(`Photo "${file.name}" ajoutée.`);
+      if (showToast) showToast(`Photo "${file.name}" ajoutée.`);
     };
     reader.readAsDataURL(file);
   };
@@ -193,7 +201,7 @@ export default function AuditWizard({ formType, editingAudit, onClose, onSubmitS
 
   const handleSubmit = async () => {
     if (!secteur || !intervenants || !dateAudit) {
-      showToast("Veuillez renseigner la Date, le Secteur et les Intervenants / Responsables à l'Étape 1.", 'error');
+      if (showToast) showToast("Veuillez renseigner la Date, le Secteur et les Intervenants / Responsables à l'Étape 1.", 'error');
       setCurrentStep(1);
       return;
     }
@@ -254,13 +262,13 @@ export default function AuditWizard({ formType, editingAudit, onClose, onSubmitS
         body: JSON.stringify(payload)
       });
       if (res.ok) {
-        showToast(editingAudit ? `Fiche #ACTIA-${editingAudit.id} mise à jour avec succès !` : `Fiche ${isPermis ? 'Permis de Travail' : 'HSE'} enregistrée avec succès !`);
+        if (showToast) showToast(editingAudit ? `Fiche #ACTIA-${editingAudit.id} mise à jour avec succès !` : `Fiche ${isPermis ? 'Permis de Travail' : 'HSE'} enregistrée avec succès !`);
         onSubmitSuccess();
       } else {
-        showToast("Erreur lors de la sauvegarde", 'error');
+        if (showToast) showToast("Erreur lors de la sauvegarde", 'error');
       }
     } catch (err) {
-      showToast("Erreur de connexion", 'error');
+      if (showToast) showToast("Erreur de connexion", 'error');
     }
   };
 
@@ -276,9 +284,28 @@ export default function AuditWizard({ formType, editingAudit, onClose, onSubmitS
 
   const scoreObj = calculateScore();
 
+  // Filter generated actions for summary table on step 5
+  const nonConformingActions = questionsData.filter(q => answers[q.id] && answers[q.id].val === 0);
+
   return (
     <div style={{ background: '#f8fafc', color: '#0f172a', borderRadius: '16px', padding: '2rem', boxShadow: '0 20px 40px rgba(0,0,0,0.4)', border: '1px solid #e2e8f0' }}>
       
+      {/* EDIT MODE BANNER */}
+      {editingAudit && (
+        <div style={{ background: 'linear-gradient(135deg, #d97706 0%, #b45309 100%)', color: '#ffffff', padding: '14px 22px', borderRadius: '12px', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 4px 15px rgba(217,119,6,0.3)', flexWrap: 'wrap', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontWeight: '700', fontSize: '0.95rem' }}>
+            <FileText size={22} color="#fef08a" />
+            <div>
+              <div>Mode Modification : Fiche <strong style={{ color: '#fef08a' }}>#ACTIA-{editingAudit.id}</strong></div>
+              <div style={{ fontSize: '0.78rem', opacity: '0.9', fontWeight: '500' }}>Modifiez les champs ci-dessous puis validez votre mise à jour.</div>
+            </div>
+          </div>
+          <button type="button" onClick={onClose} style={{ background: 'rgba(0,0,0,0.3)', color: '#ffffff', padding: '8px 18px', fontSize: '0.85rem', fontWeight: '700', border: '1px solid rgba(255,255,255,0.3)', borderRadius: '8px', cursor: 'pointer' }}>
+            Annuler la modification
+          </button>
+        </div>
+      )}
+
       {/* HEADER TOP */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '1.25rem', marginBottom: '1.5rem', borderBottom: '2px solid #e2e8f0' }}>
         <button className="btn btn-secondary" onClick={onClose} style={{ background: '#e2e8f0', color: '#334155' }}>
@@ -286,7 +313,7 @@ export default function AuditWizard({ formType, editingAudit, onClose, onSubmitS
         </button>
         <div style={{ textAlign: 'center' }}>
           <h2 style={{ fontSize: '1.3rem', fontWeight: '800', color: '#0f172a' }}>
-            {editingAudit ? `Modification ${isPermis ? 'Permis' : (isTournee ? 'Tournée' : 'Audit')} #ACTIA-${editingAudit.id}` : (isPermis ? 'Permis de Travail (FGSI-PERMIS)' : (isTournee ? 'Tournée HSE Terrain (FGSI-010)' : 'Audit HSE Terrain (FGSI-001)'))}
+            {editingAudit ? `Modification ${isPermis ? 'Permis' : (isTournee ? 'Tournée' : 'Audit')} #ACTIA-${editingAudit.id}` : (isPermis ? 'Permis de Travail (FGSI-PERMIS)' : (isTournee ? 'Tournée HSE Terrain (FGSI-010-Ind:A)' : 'Audit HSE Terrain (FGSI-001-Ind:F)'))}
           </h2>
           <div style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: '600' }}>CIPI ACTIA — Portail HSE Responsable</div>
         </div>
@@ -301,7 +328,7 @@ export default function AuditWizard({ formType, editingAudit, onClose, onSubmitS
           if (isPermis && (step === 3 || step === 4)) return null;
           const isActive = currentStep === step;
           const isCompleted = currentStep > step;
-          const label = step === 1 ? "Infos Générales" : (step === 2 ? (isPermis ? "Permis & Saisie" : (isTournee ? "Sécurité & Chimiques" : "EPI & Opérateurs")) : (step === 3 ? (isTournee ? "Maintenance & Incendie" : "5S & Machines") : (step === 4 ? (isTournee ? "Évacuation & Déchets" : "Incendie & Ergonomie") : "Synthèse & Validation")));
+          const label = step === 1 ? "Infos Générales" : (step === 2 ? (isPermis ? "Permis & Saisie" : (isTournee ? "Sécurité & Chimiques" : "EPI & Opérateurs")) : (step === 3 ? (isTournee ? "ATEX & Maintenance" : "5S & Machines") : (step === 4 ? (isTournee ? "Incendie & Déchets" : "Incendie & Ergonomie") : "Synthèse & Validation")));
           
           return (
             <div key={step} onClick={() => setCurrentStep(step)} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: 'pointer', zIndex: 2 }}>
@@ -317,8 +344,8 @@ export default function AuditWizard({ formType, editingAudit, onClose, onSubmitS
       {/* STEP 1: INFOS */}
       {currentStep === 1 && (
         <div className="wizard-card" style={{ background: '#fff', borderRadius: '12px', padding: '1.5rem', border: '1px solid #e2e8f0' }}>
-          <h3 style={{ fontSize: '1.1rem', fontWeight: '800', color: '#0f172a', marginBottom: '1.25rem', borderBottom: '1px dashed #e2e8f0', paddingBottom: '10px' }}>Étape 1 : Informations Générales</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.25rem' }}>
+          <h3 style={{ fontSize: '1.1rem', fontWeight: '800', color: '#0f172a', marginBottom: '1.25rem', borderBottom: '1px dashed #e2e8f0', paddingBottom: '10px' }}>Étape 1 : Informations Générales d'Audit</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem' }}>
             <div>
               <label style={{ fontSize: '0.82rem', fontWeight: '700', color: '#334155', display: 'block', marginBottom: '4px' }}>Date d'Audit / Fiche</label>
               <input type="date" className="light-input" value={dateAudit} onChange={e => setDateAudit(e.target.value)} required />
@@ -378,10 +405,10 @@ export default function AuditWizard({ formType, editingAudit, onClose, onSubmitS
 
             if (!isTargetStep) return null;
 
-            const a = answers[q.id] || { val: 1 };
+            const a = answers[q.id] || { val: 1, constat: '', photo: '', action: '', resp: '', delai: '', etat: 'Non engagée', comm: '' };
 
             return (
-              <div key={q.id} style={{ background: '#fff', borderRadius: '10px', padding: '1.25rem', marginBottom: '1rem', border: '1px solid #e2e8f0' }}>
+              <div key={q.id} style={{ background: '#fff', borderRadius: '10px', padding: '1.25rem', marginBottom: '1rem', border: '1px solid #e2e8f0', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
                 <div style={{ fontSize: '0.93rem', fontWeight: '700', color: '#1e293b' }}>{q.id}. {q.text}</div>
                 <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
                   <button type="button" onClick={() => updateAnswer(q.id, 'val', 1)} style={{ padding: '6px 14px', borderRadius: '20px', fontSize: '0.82rem', fontWeight: '700', border: '1px solid', borderColor: a.val === 1 ? '#10b981' : '#cbd5e1', background: a.val === 1 ? '#10b981' : '#f8fafc', color: a.val === 1 ? '#fff' : '#475569', cursor: 'pointer' }}>✓ Conforme (1)</button>
@@ -389,17 +416,75 @@ export default function AuditWizard({ formType, editingAudit, onClose, onSubmitS
                   <button type="button" onClick={() => updateAnswer(q.id, 'val', 'NA')} style={{ padding: '6px 14px', borderRadius: '20px', fontSize: '0.82rem', fontWeight: '700', border: '1px solid', borderColor: a.val === 'NA' ? '#64748b' : '#cbd5e1', background: a.val === 'NA' ? '#64748b' : '#f8fafc', color: a.val === 'NA' ? '#fff' : '#475569', cursor: 'pointer' }}>N/A</button>
                 </div>
 
+                {/* FULL NON-CONFORME ACTION SUBCARD WITH ALL ORIGINAL FIELDS */}
                 {a.val === 0 && (
-                  <div style={{ marginTop: '12px', padding: '1rem', background: '#f8fafc', borderLeft: '4px solid #ef4444', borderRadius: '6px' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <div style={{ marginTop: '12px', padding: '1.25rem', background: '#f8fafc', borderLeft: '4px solid #ef4444', borderRadius: '8px', border: '1px solid #fee2e2' }}>
+                    <div style={{ fontSize: '0.82rem', fontWeight: '800', color: '#ef4444', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <AlertTriangle size={16} color="#ef4444" /> Action Corrective & Constat Requis
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      
+                      {/* CONSTAT */}
                       <div>
-                        <label style={{ fontSize: '0.75rem', fontWeight: '700' }}>Constat détecté</label>
-                        <input type="text" className="light-input" value={a.constat || ''} onChange={e => updateAnswer(q.id, 'constat', e.target.value)} />
+                        <label style={{ fontSize: '0.75rem', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>Constat détecté</label>
+                        <input type="text" className="light-input" placeholder="Description du constat..." value={a.constat || ''} onChange={e => updateAnswer(q.id, 'constat', e.target.value)} />
                       </div>
+
+                      {/* PHOTO DROPZONE / FILE PICKER */}
                       <div>
-                        <label style={{ fontSize: '0.75rem', fontWeight: '700' }}>Action à mener</label>
-                        <input type="text" className="light-input" value={a.action || ''} onChange={e => updateAnswer(q.id, 'action', e.target.value)} />
+                        <label style={{ fontSize: '0.75rem', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>Photo (Facultatif — Parcourir)</label>
+                        {!a.photo ? (
+                          <div style={{ border: '2px dashed #00c996', background: 'rgba(0,201,150,0.05)', padding: '10px', borderRadius: '8px', textAlign: 'center', cursor: 'pointer' }}>
+                            <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '0.78rem', color: '#00c996', fontWeight: '700' }}>
+                              <Camera size={16} /> Glisser une photo ou Parcourir
+                              <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => handlePhotoUpload(q.id, e.target.files[0])} />
+                            </label>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#fff', padding: '6px 12px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
+                            <img src={a.photo} alt="Constat" style={{ width: '38px', height: '38px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #00c996' }} />
+                            <span style={{ fontSize: '0.78rem', fontWeight: '600', color: '#0f172a', flex: 1 }}>Photo enregistrée</span>
+                            <button type="button" onClick={() => updateAnswer(q.id, 'photo', '')} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer' }}><X size={18}/></button>
+                          </div>
+                        )}
                       </div>
+
+                      {/* ACTION PROPOSÉE */}
+                      <div>
+                        <label style={{ fontSize: '0.75rem', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>Action à mener</label>
+                        <input type="text" className="light-input" placeholder="Action corrective proposée..." value={a.action || ''} onChange={e => updateAnswer(q.id, 'action', e.target.value)} />
+                      </div>
+
+                      {/* RESPONSABLE DÉSIGNÉ */}
+                      <div>
+                        <label style={{ fontSize: '0.75rem', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>Responsable désigné</label>
+                        <input type="text" className="light-input" placeholder="ex: Responsable Maintenance" value={a.resp || ''} onChange={e => updateAnswer(q.id, 'resp', e.target.value)} />
+                      </div>
+
+                      {/* DÉLAI & ÉTAT ACTION */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                        <div>
+                          <label style={{ fontSize: '0.75rem', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>Délai (Date)</label>
+                          <input type="date" className="light-input" value={a.delai || ''} onChange={e => updateAnswer(q.id, 'delai', e.target.value)} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '0.75rem', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>État Action</label>
+                          <select className="light-input" value={a.etat || 'Non engagée'} onChange={e => updateAnswer(q.id, 'etat', e.target.value)}>
+                            <option value="Non engagée">Non engagée</option>
+                            <option value="En cours">En cours</option>
+                            <option value="Soldée">Soldée</option>
+                            <option value="En retard">En retard</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* COMMENTAIRES */}
+                      <div>
+                        <label style={{ fontSize: '0.75rem', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>Commentaires / Observations</label>
+                        <input type="text" className="light-input" placeholder="Remarques..." value={a.comm || ''} onChange={e => updateAnswer(q.id, 'comm', e.target.value)} />
+                      </div>
+
                     </div>
                   </div>
                 )}
@@ -437,7 +522,52 @@ export default function AuditWizard({ formType, editingAudit, onClose, onSubmitS
                 <div style={{ fontSize: '1.6rem', fontWeight: '800', color: '#b91c1c', marginTop: '4px' }}>{permisFeu}</div>
               </div>
             </div>
-          ) : null}
+          ) : (
+            nonConformingActions.length > 0 && (
+              <div className="wizard-card" style={{ background: '#fff', borderRadius: '12px', padding: '1.25rem', marginBottom: '1.5rem', border: '1px solid #e2e8f0' }}>
+                <h3 style={{ fontSize: '1.05rem', fontWeight: '800', color: '#ef4444', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <AlertTriangle size={18} color="#ef4444" /> Tableau Récapitulatif des Actions Correctives Générées ({nonConformingActions.length})
+                </h3>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569', textAlign: 'left' }}>
+                        <th style={{ padding: '10px' }}>Q#</th>
+                        <th style={{ padding: '10px' }}>Constat</th>
+                        <th style={{ padding: '10px' }}>Action Proposée</th>
+                        <th style={{ padding: '10px' }}>Responsable</th>
+                        <th style={{ padding: '10px' }}>Délai</th>
+                        <th style={{ padding: '10px' }}>État</th>
+                        <th style={{ padding: '10px' }}>Photo</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {nonConformingActions.map(q => {
+                        const a = answers[q.id] || {};
+                        return (
+                          <tr key={q.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            <td style={{ padding: '10px', fontWeight: '800', color: '#ef4444' }}>#{q.id}</td>
+                            <td style={{ padding: '10px', color: '#1e293b' }}>{a.constat || 'Non renseigné'}</td>
+                            <td style={{ padding: '10px', color: '#1e293b' }}>{a.action || 'Non renseignée'}</td>
+                            <td style={{ padding: '10px', color: '#64748b' }}>{a.resp || 'Non désigné'}</td>
+                            <td style={{ padding: '10px', color: '#64748b' }}>{a.delai || 'Non défini'}</td>
+                            <td style={{ padding: '10px' }}>
+                              <span style={{ padding: '3px 8px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: '800', background: a.etat === 'Soldée' ? '#dcfce7' : (a.etat === 'En cours' ? '#dbeafe' : '#fee2e2'), color: a.etat === 'Soldée' ? '#166534' : (a.etat === 'En cours' ? '#1e40af' : '#991b1b') }}>
+                                {a.etat || 'Non engagée'}
+                              </span>
+                            </td>
+                            <td style={{ padding: '10px' }}>
+                              {a.photo ? <img src={a.photo} alt="Photo" style={{ width: '32px', height: '32px', borderRadius: '4px', objectFit: 'cover' }} /> : '—'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )
+          )}
 
           <div style={{ marginBottom: '1.5rem' }}>
             <label style={{ fontSize: '0.82rem', fontWeight: '700', color: '#334155', display: 'block', marginBottom: '4px' }}>Commentaires généraux des auditeurs / intervenants</label>

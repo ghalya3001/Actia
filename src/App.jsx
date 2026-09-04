@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import Home from './components/home/Home.jsx';
 import Sidebar from './components/layout/Sidebar.jsx';
 import Topbar from './components/layout/Topbar.jsx';
 import AuthScreen from './components/auth/AuthScreen.jsx';
@@ -10,7 +10,6 @@ import DeleteModal from './components/history/DeleteModal.jsx';
 import PrintReport from './components/history/PrintReport.jsx';
 import HseDashboard from './components/dashboard/HseDashboard.jsx';
 import UserProfile from './components/profile/UserProfile.jsx';
-import { ShieldCheck, ArrowRight, Award, FileEdit, Clock, LineChart } from 'lucide-react';
 
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem('access_token') || null);
@@ -130,49 +129,7 @@ export default function App() {
       <main className="main-content">
         
         {/* PAGE HOME */}
-        {currentPage === 'home' && (
-          <div className="page-anim">
-            <div style={{ marginBottom: '2rem' }}>
-              <h1 style={{ fontSize: '1.8rem', fontWeight: '800', color: '#fff' }}>Bienvenue sur <span style={{ color: 'var(--color-primary)' }}>PlatformActia HSE</span></h1>
-              <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>Hygiène · Sécurité · Environnement — Portail Responsable</p>
-            </div>
-
-            <div className="glass-card" style={{ marginBottom: '2rem', background: 'linear-gradient(135deg, rgba(0,61,77,0.8) 0%, rgba(0,28,36,0.9) 100%)' }}>
-              <h2 style={{ fontSize: '1.25rem', fontWeight: '800', color: '#fff', marginBottom: '8px' }}>
-                La Sécurité n'est pas une option — <span style={{ color: 'var(--color-accent-light)' }}>c'est une culture au quotidien.</span>
-              </h2>
-              <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', lineHeight: '1.6' }}>
-                Construisez un environnement d'excellence où chaque collaborateur travaille en toute sécurité.
-              </p>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1.25rem' }}>
-              <div className="glass-card" style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', cursor: 'pointer' }} onClick={() => setCurrentPage('formulaire')}>
-                <div style={{ width: '50px', height: '50px', borderRadius: '12px', background: 'rgba(0,201,150,0.15)', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><FileEdit size={26}/></div>
-                <div>
-                  <h3 style={{ fontSize: '1.05rem', fontWeight: '800', color: '#fff' }}>Nouveau Formulaire</h3>
-                  <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Audit, Tournée & Permis</p>
-                </div>
-              </div>
-
-              <div className="glass-card" style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', cursor: 'pointer' }} onClick={() => setCurrentPage('historique')}>
-                <div style={{ width: '50px', height: '50px', borderRadius: '12px', background: 'rgba(168,224,99,0.15)', color: 'var(--color-accent-light)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Clock size={26}/></div>
-                <div>
-                  <h3 style={{ fontSize: '1.05rem', fontWeight: '800', color: '#fff' }}>Historique Audits</h3>
-                  <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Consulter les fiches</p>
-                </div>
-              </div>
-
-              <div className="glass-card" style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', cursor: 'pointer' }} onClick={() => setCurrentPage('dashboard')}>
-                <div style={{ width: '50px', height: '50px', borderRadius: '12px', background: 'rgba(59,130,246,0.15)', color: '#60a5fa', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><LineChart size={26}/></div>
-                <div>
-                  <h3 style={{ fontSize: '1.05rem', fontWeight: '800', color: '#fff' }}>Dashboard HSE</h3>
-                  <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Graphiques & KPIs</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        {currentPage === 'home' && <Home onNavigate={setCurrentPage} />}
 
         {/* PAGE FORMULAIRE */}
         {currentPage === 'formulaire' && (
