@@ -1,0 +1,50 @@
+import uuid
+import jwt
+import bcrypt
+import random
+from datetime import datetime, timedelta, timezone
+from typing import Optional, Any, Union, Tuple
+from app.core.config import settings
+
+def hash_password(password: str) -> str:
+    pwd_bytes = password.encode('utf-8')
+    if len(pwd_bytes) > 72:
+        pwd_bytes = pwd_bytes[:72]
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(pwd_bytes, salt)
+    return hashed.decode('utf-8')
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    pwd_bytes = plain_password.encode('utf-8')
+    if len(pwd_bytes) > 72:
+        pwd_bytes = pwd_bytes[:72]
+    hash_bytes = hashed_password.encode('utf-8')
+    return bcrypt.checkpw(pwd_bytes, hash_bytes)
+
+def create_access_token(subject: Union[str, Any], expires_delta: Optional[timedelta] = None) -> Tuple[str, str, datetime]:
+    jti = str(uuid.uuid4())
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    
+    to_encode = {
+        "exp": expire,
+        "sub": str(subject),
+        "jti": jti,
+        "iat": datetime.now(timezone.utc)
+    }
+    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    return encoded_jwt, jti, expire
+
+def generate_refresh_token() -> Tuple[str, datetime]:
+    raw_token = f"ref_{uuid.uuid4().hex}{uuid.uuid4().hex}"
+    expires_at = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    return raw_token, expires_at
+
+def generate_otp_code() -> str:
+    """Generates a secure 6-digit numerical OTP code e.g. '482910'"""
+    return f"{random.randint(100000, 999999)}"
+
+def generate_reset_token() -> str:
+    return str(uuid.uuid4())
