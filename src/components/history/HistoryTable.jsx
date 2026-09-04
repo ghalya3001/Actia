@@ -1,10 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Eye, Pen, Printer, Trash2, Search, Calendar, Layers, FolderOpen } from 'lucide-react';
+import { Eye, Pen, Printer, Trash2, Search, Calendar, Layers, FolderOpen, RotateCcw } from 'lucide-react';
 
 export default function HistoryTable({ audits, onRefresh, onView, onEdit, onDelete, onPrint }) {
   const [filterType, setFilterType] = useState('');
   const [filterDate, setFilterDate] = useState('');
   const [filterSecteur, setFilterSecteur] = useState('');
+
+  const handleResetFilters = () => {
+    setFilterType('');
+    setFilterDate('');
+    setFilterSecteur('');
+  };
 
   const filteredAudits = audits.filter(audit => {
     const matchType = !filterType || (filterType === 'audit_hse' ? (audit.form_type === 'audit_hse' || audit.form_type === 'audit_hse_complet') : audit.form_type === filterType);
@@ -35,6 +41,26 @@ export default function HistoryTable({ audits, onRefresh, onView, onEdit, onDele
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1, minWidth: '220px' }}>
           <label style={{ fontSize: '0.78rem', fontWeight: '700', color: 'var(--text-muted)' }}><Search size={14} style={{ display: 'inline', marginRight: '4px' }}/> Recherche Secteur / Intervenant</label>
           <input type="text" className="form-input" placeholder="Filtrer instantanément..." value={filterSecteur} onChange={e => setFilterSecteur(e.target.value)} />
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <button
+            className="btn btn-secondary"
+            onClick={handleResetFilters}
+            disabled={!filterType && !filterDate && !filterSecteur}
+            style={{
+              opacity: (!filterType && !filterDate && !filterSecteur) ? 0.5 : 1,
+              cursor: (!filterType && !filterDate && !filterSecteur) ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '10px 16px',
+              height: '42px'
+            }}
+            title="Réinitialiser tous les filtres de recherche"
+          >
+            <RotateCcw size={14} /> Réinitialiser
+          </button>
         </div>
       </div>
 
