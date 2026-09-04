@@ -158,16 +158,16 @@ export default function Home({ onNavigate }) {
           </div>
           <div className="panel-body" style={{ padding: '1.25rem' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <div className="rule-item"><div class="rule-num">1</div><div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Travailler toujours avec les <strong style={{ color: '#fff' }}>autorisations de travail</strong> valides.</div></div>
-              <div className="rule-item"><div class="rule-num">2</div><div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Appliquer la <strong style={{ color: '#fff' }}>consignation LOTO</strong> avant toute maintenance.</div></div>
-              <div className="rule-item"><div class="rule-num">3</div><div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Porter impérativement les <strong style={{ color: '#fff' }}>EPI réglementaires</strong>.</div></div>
-              <div className="rule-item"><div class="rule-num">4</div><div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Ne jamais contourner un <strong style={{ color: '#fff' }}>dispositif de sécurité</strong>.</div></div>
-              <div className="rule-item"><div class="rule-num">5</div><div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Déclarer instantanément <strong style={{ color: '#fff' }}>tout incident ou risque</strong>.</div></div>
-              <div className="rule-item"><div class="rule-num">6</div><div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Respecter les <strong style={{ color: '#fff' }}>règles de circulation et vitesses</strong> sur site.</div></div>
-              <div className="rule-item"><div class="rule-num">7</div><div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Utiliser un <strong style={{ color: '#fff' }}>harnais antichute</strong> pour le travail en hauteur.</div></div>
-              <div className="rule-item"><div class="rule-num">8</div><div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Tester l’atmosphère avant d'entrer en <strong style={{ color: '#fff' }}>espace confiné</strong>.</div></div>
-              <div className="rule-item"><div class="rule-num">9</div><div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Tolérance zéro pour les <strong style={{ color: '#fff' }}>substances altérantes</strong>.</div></div>
-              <div className="rule-item"><div class="rule-num">10</div><div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Trier et trier correctement les <strong style={{ color: '#fff' }}>déchets dangereux</strong>.</div></div>
+              <div className="rule-item"><div className="rule-num">1</div><div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Travailler toujours avec les <strong style={{ color: '#fff' }}>autorisations de travail</strong> valides.</div></div>
+              <div className="rule-item"><div className="rule-num">2</div><div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Appliquer la <strong style={{ color: '#fff' }}>consignation LOTO</strong> avant toute maintenance.</div></div>
+              <div className="rule-item"><div className="rule-num">3</div><div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Porter impérativement les <strong style={{ color: '#fff' }}>EPI réglementaires</strong>.</div></div>
+              <div className="rule-item"><div className="rule-num">4</div><div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Ne jamais contourner un <strong style={{ color: '#fff' }}>dispositif de sécurité</strong>.</div></div>
+              <div className="rule-item"><div className="rule-num">5</div><div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Déclarer instantanément <strong style={{ color: '#fff' }}>tout incident ou risque</strong>.</div></div>
+              <div className="rule-item"><div className="rule-num">6</div><div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Respecter les <strong style={{ color: '#fff' }}>règles de circulation et vitesses</strong> sur site.</div></div>
+              <div className="rule-item"><div className="rule-num">7</div><div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Utiliser un <strong style={{ color: '#fff' }}>harnais antichute</strong> pour le travail en hauteur.</div></div>
+              <div className="rule-item"><div className="rule-num">8</div><div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Tester l’atmosphère avant d'entrer en <strong style={{ color: '#fff' }}>espace confiné</strong>.</div></div>
+              <div className="rule-item"><div className="rule-num">9</div><div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Tolérance zéro pour les <strong style={{ color: '#fff' }}>substances altérantes</strong>.</div></div>
+              <div className="rule-item"><div className="rule-num">10</div><div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Trier et trier correctement les <strong style={{ color: '#fff' }}>déchets dangereux</strong>.</div></div>
             </div>
           </div>
         </div>
