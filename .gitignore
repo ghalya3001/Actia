@@ -38,6 +38,8 @@ ENV/
 .coverage
 htmlcov/
 
-# Database
-*.db
+# Node
+node_modules/
+dist/
+
 

@@ -62,21 +62,31 @@ app.add_middleware(
 
 
 # -----------------------------------------------------------------------------
-# 3. SERVICE DES FICHIERS STATIQUES ET INTERFACE WEB (FRONTEND)
+# 3. SERVICE DES FICHIERS STATIQUES ET INTERFACE WEB (FRONTEND REACT / STATIC)
 # -----------------------------------------------------------------------------
-static_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static")
+base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+dist_dir = os.path.join(base_dir, "dist")
+static_dir = os.path.join(base_dir, "static")
+
+if os.path.exists(dist_dir):
+    app.mount("/assets", StaticFiles(directory=os.path.join(dist_dir, "assets")), name="assets")
+
 if os.path.exists(static_dir):
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 @app.get("/ui", tags=["Web UI"], include_in_schema=False)
-def serve_ui():
+@app.get("/ui/{full_path:path}", tags=["Web UI"], include_in_schema=False)
+def serve_ui(full_path: str = ""):
     """
-    [ROUTE FRONTEND] Servez l'interface utilisateur SPA complète HTML/CSS/JS (index.html).
+    [ROUTE FRONTEND REACT] Servez l'interface utilisateur SPA complète (React Vite dist/index.html).
     Accès navigateur : http://localhost:8000/ui
     """
-    index_file = os.path.join(static_dir, "index.html")
-    if os.path.exists(index_file):
-        return FileResponse(index_file)
+    dist_index = os.path.join(dist_dir, "index.html")
+    if os.path.exists(dist_index):
+        return FileResponse(dist_index)
+    static_index = os.path.join(static_dir, "index.html")
+    if os.path.exists(static_index):
+        return FileResponse(static_index)
     return {"error": "Fichier d'interface utilisateur introuvable."}
 
 
