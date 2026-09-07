@@ -35,6 +35,23 @@ async def lifespan(app: FastAPI):
     try:
         Base.metadata.create_all(bind=engine)
         print("[DATABASE] Initialisation des tables ORM réussie.")
+        
+        # Seed default Responsable HSE user if not present
+        from sqlalchemy.orm import Session as DBSession
+        from app.models.user import User
+        from app.core.security import hash_password
+        
+        with DBSession(engine) as db:
+            demo_user = db.query(User).filter(User.email == "responsable@actia.com").first()
+            if not demo_user:
+                db.add(User(
+                    email="responsable@actia.com",
+                    full_name="Responsable HSE Actia",
+                    hashed_password=hash_password("actia123"),
+                    is_active=True
+                ))
+                db.commit()
+                print("[DATABASE] Compte démo responsable@actia.com initialisé avec succès.")
     except Exception as e:
         print(f"[Warning] Avertissement lors de la création des tables DB : {e}")
     yield

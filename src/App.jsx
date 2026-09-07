@@ -12,7 +12,11 @@ import HseDashboard from './components/dashboard/HseDashboard.jsx';
 import UserProfile from './components/profile/UserProfile.jsx';
 
 export default function App() {
-  const [token, setToken] = useState(localStorage.getItem('access_token') || null);
+  const getValidToken = () => {
+    const t = localStorage.getItem('access_token');
+    return (t && t !== 'null' && t !== 'undefined' && t.trim() !== '') ? t : null;
+  };
+  const [token, setToken] = useState(getValidToken());
   const [user, setUser] = useState(null);
   const [currentPage, setCurrentPage] = useState('home');
 

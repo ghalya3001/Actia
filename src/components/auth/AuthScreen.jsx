@@ -3,8 +3,8 @@ import { LogIn, UserPlus, ShieldAlert, Mail, Lock, User, Send, CheckCircle2, Arr
 
 export default function AuthScreen({ onLoginSuccess, showToast }) {
   const [activeTab, setActiveTab] = useState('login');
-  const [loginEmail, setLoginEmail] = useState('');
-  const [loginPassword, setLoginPassword] = useState('');
+  const [loginEmail, setLoginEmail] = useState('responsable@actia.com');
+  const [loginPassword, setLoginPassword] = useState('actia123');
   
   const [regFullName, setRegFullName] = useState('');
   const [regEmail, setRegEmail] = useState('');
