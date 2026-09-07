@@ -11,7 +11,7 @@ export default function Sidebar({ currentPage, setCurrentPage, onLogout }) {
   ];
 
   return (
-    <aside class="sidebar">
+    <aside className="sidebar">
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '2rem', paddingBottom: '1rem', borderBottom: '1px solid rgba(0,201,150,0.2)' }}>
         <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'var(--color-primary)', color: '#00141a', fontWeight: '800', fontSize: '1.4rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>P</div>
         <div>
