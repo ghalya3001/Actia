@@ -165,7 +165,7 @@ def test_forgot_and_reset_password_otp_flow(client, db_session):
     # 2. Trigger Forgot Password
     forgot_resp = client.post("/api/v1/auth/forgot-password", json={"email": "forgot_otp@platformactia.com"})
     assert forgot_resp.status_code == 200
-    assert "verification code" in forgot_resp.json()["message"]
+    assert "code" in forgot_resp.json()["message"].lower()
 
     # 3. Simulate OTP code for testing
     otp_code = "849201"

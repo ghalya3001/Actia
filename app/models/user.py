@@ -14,6 +14,9 @@ class User(Base):
 
     reset_tokens = relationship("PasswordResetToken", back_populates="user", cascade="all, delete-orphan")
     refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
+    submissions = relationship("FormSubmission", back_populates="user", cascade="all, delete-orphan")
+    kpi_snapshots = relationship("KPISnapshot", back_populates="user", cascade="all, delete-orphan")
+    dashboard_widgets = relationship("DashboardWidget", back_populates="user", cascade="all, delete-orphan")
 
 
 class PasswordResetToken(Base):

@@ -34,9 +34,18 @@ async def lifespan(app: FastAPI):
     """
     try:
         # Import all models so they register with Base.metadata
-        import app.models.user  # noqa: F401
+        import app.models  # noqa: F401
         Base.metadata.create_all(bind=engine)
         print("[DATABASE] OK - Tables PostgreSQL verifiees et pretes.", flush=True)
+
+        # Initialisation du catalogue de KPIs si nécessaire
+        from app.services.kpi_service import KPIService
+        from app.db.session import SessionLocal
+        init_db = SessionLocal()
+        try:
+            KPIService.ensure_default_kpi_definitions(init_db)
+        finally:
+            init_db.close()
     except Exception as e:
         print(f"[DATABASE] ERREUR - Creation des tables: {e}", flush=True)
     yield
