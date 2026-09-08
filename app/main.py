@@ -3,7 +3,7 @@
 PLATFORMACTIA - POINT D'ENTRÉE PRINCIPAL FASTAPI (MAIN.PY)
 ===============================================================================
 Ce fichier initialise l'application web FastAPI, configure les middlewares
-(CORS), monte les fichiers statiques HTML/CSS/JS, crée les tables SQLite/PostgreSQL
+(CORS), monte les fichiers statiques HTML/CSS/JS, crée les tables PostgreSQL
 et déclare les routes d'API pour le Portail Responsable HSE.
 
 Auteurs / Équipe : CIPI ACTIA - Plateforme HSE
@@ -30,30 +30,15 @@ from app.db.session import engine
 async def lifespan(app: FastAPI):
     """
     Gestionnaire de cycle de vie exécuté au démarrage et à l'arrêt du serveur.
-    Initialise automatiquement les tables de base de données ORM SQLAlchemy (SQLite ou PostgreSQL).
+    Crée automatiquement toutes les tables ORM dans PostgreSQL si elles n'existent pas.
     """
     try:
+        # Import all models so they register with Base.metadata
+        import app.models.user  # noqa: F401
         Base.metadata.create_all(bind=engine)
-        print("[DATABASE] Initialisation des tables ORM réussie.")
-        
-        # Seed default Responsable HSE user if not present
-        from sqlalchemy.orm import Session as DBSession
-        from app.models.user import User
-        from app.core.security import hash_password
-        
-        with DBSession(engine) as db:
-            demo_user = db.query(User).filter(User.email == "responsable@actia.com").first()
-            if not demo_user:
-                db.add(User(
-                    email="responsable@actia.com",
-                    full_name="Responsable HSE Actia",
-                    hashed_password=hash_password("actia123"),
-                    is_active=True
-                ))
-                db.commit()
-                print("[DATABASE] Compte démo responsable@actia.com initialisé avec succès.")
+        print("[DATABASE] OK - Tables PostgreSQL verifiees et pretes.", flush=True)
     except Exception as e:
-        print(f"[Warning] Avertissement lors de la création des tables DB : {e}")
+        print(f"[DATABASE] ERREUR - Creation des tables: {e}", flush=True)
     yield
 
 

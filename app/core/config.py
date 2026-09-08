@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     RESET_TOKEN_EXPIRE_MINUTES: int = 15
 
     # Database Configuration
-    DATABASE_URL: str = "postgresql+psycopg://postgres:postgres@localhost:5432/platformactia_db"
+    DATABASE_URL: str = "postgresql+psycopg://postgres:postgres@127.0.0.1:5432/platformactia_db"
 
     # SMTP Gmail Platform Sender Configuration
     SMTP_HOST: str = "smtp.gmail.com"
