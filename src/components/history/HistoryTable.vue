@@ -38,6 +38,7 @@ const filteredAudits = computed(() => {
           <option value="audit_hse">Audit HSE (FGSI-001)</option>
           <option value="tournee_hse">Tournée HSE (FGSI-010-Ind:A)</option>
           <option value="permis_travail">Permis de Travail (FGSI-PERMIS)</option>
+          <option value="statistiques_accidents">Statistiques Accidents & Santé (FGSI-STAT)</option>
         </select>
       </div>
 
@@ -100,20 +101,26 @@ const filteredAudits = computed(() => {
           </tr>
           <tr v-for="audit in filteredAudits" :key="audit.id" style="border-bottom: 1px solid rgba(0,201,150,0.1);">
             <td style="padding: 14px 16px;">
-              <strong :style="{ color: (audit.form_type === 'permis_travail' || audit.reference === 'FGSI-PERMIS') ? '#60a5fa' : 'var(--color-primary)', fontFamily: 'var(--font-mono)' }">#ACTIA-{{ audit.id }}</strong>
+              <strong :style="{ color: audit.form_type === 'statistiques_accidents' ? '#fbbf24' : ((audit.form_type === 'permis_travail' || audit.reference === 'FGSI-PERMIS') ? '#60a5fa' : 'var(--color-primary)'), fontFamily: 'var(--font-mono)' }">#ACTIA-{{ audit.id }}</strong>
               <div style="font-size: 0.72rem; color: var(--text-dim);">{{ audit.reference }}</div>
             </td>
             <td style="padding: 14px 16px;"><strong>{{ audit.date_audit }}</strong></td>
             <td style="padding: 14px 16px;"><span style="font-weight: 700; color: #fff;">{{ audit.secteur }}</span></td>
             <td style="padding: 14px 16px;"><span style="color: var(--text-muted); font-size: 0.85rem;">{{ audit.intervenants }}</span></td>
             <td style="padding: 14px 16px;">
-              <span v-if="(audit.form_type === 'permis_travail' || audit.reference === 'FGSI-PERMIS')" class="incident-badge" style="background: rgba(59,130,246,0.15); color: #60a5fa; border: 1px solid #3b82f6;">FGSI-PERMIS</span>
+              <span v-if="audit.form_type === 'statistiques_accidents'" class="incident-badge" style="background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid #f59e0b;">
+                FGSI-STAT
+              </span>
+              <span v-else-if="(audit.form_type === 'permis_travail' || audit.reference === 'FGSI-PERMIS')" class="incident-badge" style="background: rgba(59,130,246,0.15); color: #60a5fa; border: 1px solid #3b82f6;">FGSI-PERMIS</span>
               <span v-else :class="['incident-badge', audit.taux_conformite >= 85 ? 'badge-green' : (audit.taux_conformite >= 60 ? 'badge-orange' : 'badge-red')]">
                 {{ audit.taux_conformite }} %
               </span>
             </td>
             <td style="padding: 14px 16px;">
-              <div v-if="(audit.form_type === 'permis_travail' || audit.reference === 'FGSI-PERMIS')" style="font-size: 0.78rem; color: #60a5fa;">
+              <div v-if="audit.form_type === 'statistiques_accidents'" style="font-size: 0.78rem; color: #fbbf24;">
+                🚨 Acc: <strong>{{ (audit.items_data || {}).totaux?.nb_accidents_total ?? 0 }}</strong> · 🛑 Arrêt: <strong>{{ (audit.items_data || {}).totaux?.nb_accidents_avec_arret ?? 0 }}</strong> · ⏱️ H: <strong>{{ ((audit.items_data || {}).totaux?.nb_heures_travaillees ?? 0).toLocaleString() }}</strong>
+              </div>
+              <div v-else-if="(audit.form_type === 'permis_travail' || audit.reference === 'FGSI-PERMIS')" style="font-size: 0.78rem; color: #60a5fa;">
                 📋 Plan prev: <strong>{{ (audit.items_data || {}).plan_prevention || 0 }}</strong> · 🧗 Hauteur: <strong>{{ (audit.items_data || {}).permis_hauteur || 0 }}</strong> · 🔥 Feu: <strong>{{ (audit.items_data || {}).permis_feu || 0 }}</strong>
               </div>
               <div v-else style="font-size: 0.78rem;">

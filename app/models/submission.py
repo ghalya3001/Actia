@@ -219,3 +219,101 @@ class PhotoStorage(Base):
     original_filename = Column(String(255), nullable=True)
     file_size_kb = Column(Integer, nullable=True)
     uploaded_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+# =============================================================================
+# 8. TABLE FILLE : ACCIDENT_TRAVAIL_SUBMISSIONS (Suivi Mensuel des Accidents & Santé)
+# =============================================================================
+class AccidentTravailSubmission(FormSubmission):
+    """
+    Table enfant pour le Suivi Mensuel des Accidents de Travail et Statistiques HSE.
+    Clé primaire partagée avec form_submissions.id.
+    """
+    __tablename__ = "accident_travail_submissions"
+
+    id = Column(Integer, ForeignKey("form_submissions.id", ondelete="CASCADE"), primary_key=True)
+    annee = Column(Integer, default=2026, nullable=False)
+
+    # Totaux annuels consolidés
+    total_accidents = Column(Integer, default=0, nullable=False)
+    total_accidents_avec_arret = Column(Integer, default=0, nullable=False)
+    total_accidents_sans_arret = Column(Integer, default=0, nullable=False)
+    total_heures_travaillees = Column(Float, default=0.0, nullable=False)
+    total_jours_perdus = Column(Integer, default=0, nullable=False)
+    total_travailleurs = Column(Integer, default=0, nullable=False)
+    total_visites_medicales = Column(Integer, default=0, nullable=False)
+    total_maladies_pro = Column(Integer, default=0, nullable=False)
+
+    # Indicateurs HSE annuels moyens calculés
+    taux_frequence = Column(Float, default=0.0, nullable=False)   # TF = (accidents_arret / heures) * 1 000 000
+    indice_frequence = Column(Float, default=0.0, nullable=False) # IF = (accidents_arret / salariés) * 1 000
+    taux_gravite = Column(Float, default=0.0, nullable=False)      # TG = (jours_perdus * 1 000) / heures
+    indice_gravite = Column(Float, default=0.0, nullable=False)    # IG = (incapacite_perm * 1 000) / heures
+
+    # Objectifs / Cibles
+    target_if = Column(Float, default=2.5, nullable=False)
+    target_tf = Column(Float, default=0.0, nullable=False)
+    target_tg = Column(Float, default=0.0, nullable=False)
+    target_ig = Column(Float, default=0.0, nullable=False)
+
+    __mapper_args__ = {
+        "polymorphic_identity": "statistiques_accidents",
+    }
+
+    # Relation 1 -> 12 vers les lignes mensuelles
+    monthly_items = relationship(
+        "AccidentTravailMonthlyItem",
+        back_populates="submission",
+        cascade="all, delete-orphan",
+        order_by="AccidentTravailMonthlyItem.mois_index"
+    )
+
+
+# =============================================================================
+# 9. TABLE : ACCIDENT_TRAVAIL_MONTHLY_ITEMS (Détail des 12 Mois)
+# =============================================================================
+class AccidentTravailMonthlyItem(Base):
+    """
+    Enregistrement par mois (janvier à décembre) pour les indicateurs HSE.
+    """
+    __tablename__ = "accident_travail_monthly_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    submission_id = Column(Integer, ForeignKey("accident_travail_submissions.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    mois_index = Column(Integer, nullable=False)  # 1 à 12
+    mois_label = Column(String(50), nullable=False)  # 'janv.-26', 'févr.-26', etc.
+
+    # 1. Somme automatique (Ligne 1 = Ligne 2 + Ligne 3)
+    nb_accidents_total = Column(Integer, default=0, nullable=False)
+
+    # 2. Nombre d'accidents avec arrêt
+    nb_accidents_avec_arret = Column(Integer, default=0, nullable=False)
+
+    # 3. Nombre d'accidents sans arrêt
+    nb_accidents_sans_arret = Column(Integer, default=0, nullable=False)
+
+    # 4. Nombre d'heures travaillées
+    nb_heures_travaillees = Column(Float, default=0.0, nullable=False)
+
+    # 5. Nombre total de jours perdus (Accident avec Arrêt / Incapacité)
+    nb_jours_perdus = Column(Integer, default=0, nullable=False)
+
+    # 6. Nombre des travailleurs / salariés
+    nb_travailleurs = Column(Integer, default=0, nullable=False)
+
+    # 7. Nombre des visites médicales
+    nb_visites_medicales = Column(Integer, default=0, nullable=False)
+
+    # 8. Nombre des maladies professionnelles
+    nb_maladies_pro = Column(Integer, default=0, nullable=False)
+
+    # Indicateurs calculés par mois
+    tf_valeur = Column(Float, default=0.0, nullable=False)  # TF
+    if_valeur = Column(Float, default=0.0, nullable=False)  # IF
+    tg_valeur = Column(Float, default=0.0, nullable=False)  # TG
+    ig_valeur = Column(Float, default=0.0, nullable=False)  # IG
+    incapacite_permanente = Column(Float, default=0.0, nullable=False)
+
+    submission = relationship("AccidentTravailSubmission", back_populates="monthly_items")
+

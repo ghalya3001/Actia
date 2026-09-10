@@ -24,8 +24,11 @@ from app.models.submission import (
     TourneeHSEItem,
     PermisTravailSubmission,
     PhotoStorage,
+    AccidentTravailSubmission,
+    AccidentTravailMonthlyItem,
 )
 from app.schemas.audit import HSEAuditCreate, HSEAuditUpdate
+
 
 
 # Mapping pour convertir les états d'action entre le frontend et la base
@@ -74,6 +77,8 @@ class SubmissionService:
             target_type = "tournee_hse"
         elif form_type == "permis_travail":
             target_type = "permis_travail"
+        elif form_type in ("statistiques_accidents", "accident_travail"):
+            target_type = "statistiques_accidents"
         else:
             target_type = "audit_hse"
 
@@ -144,9 +149,123 @@ class SubmissionService:
             db.add(submission)
             db.flush()
 
+        elif target_type == "statistiques_accidents":
+            items_d = audit_in.items_data or {}
+            annee_val = int(items_d.get("annee") or (audit_in.date_audit.split("-")[0] if "-" in audit_in.date_audit else 2026))
+            submission = AccidentTravailSubmission(
+                user_id=user_id,
+                form_type=target_type,
+                reference=audit_in.reference or "FGSI-STAT-ACCIDENTS",
+                secteur=audit_in.secteur,
+                intervenants=audit_in.intervenants,
+                date_audit=audit_in.date_audit,
+                taux_conformite=audit_in.taux_conformite or 100.0,
+                commentaires_generaux=audit_in.commentaires_generaux,
+                annee=annee_val,
+                target_if=float(items_d.get("target_if") or 2.5),
+                target_tf=float(items_d.get("target_tf") or 0.0),
+                target_tg=float(items_d.get("target_tg") or 0.0),
+                target_ig=float(items_d.get("target_ig") or 0.0),
+            )
+            db.add(submission)
+            db.flush()
+
+            cls._save_accident_travail_items(db, submission, items_d)
+
         db.commit()
         db.refresh(submission)
         return cls.submission_to_dict(submission)
+
+    @classmethod
+    def _save_accident_travail_items(cls, db: Session, submission: AccidentTravailSubmission, items_data: Dict[str, Any]):
+        """
+        Enregistre les 12 mois de statistiques accidents et met à jour les totaux/indicateurs parents.
+        Garantit la règle : nb_accidents_total = nb_accidents_avec_arret + nb_accidents_sans_arret
+        """
+        months_dict = items_data.get("months", items_data)
+        if not isinstance(months_dict, dict):
+            months_dict = {}
+
+        MOIS_LABELS = [
+            "janv.", "févr.", "mars", "avr.", "mai", "juin",
+            "juil.", "août", "sept.", "oct.", "nov.", "déc."
+        ]
+        annee_short = str(submission.annee)[-2:]
+
+        tot_avec = 0
+        tot_sans = 0
+        tot_heures = 0.0
+        tot_jours = 0
+        tot_salaries = 0
+        tot_visites = 0
+        tot_maladies = 0
+
+        for m_idx in range(1, 13):
+            m_key = str(m_idx)
+            m_data = months_dict.get(m_key, {})
+            if not isinstance(m_data, dict):
+                m_data = {}
+
+            avec_arret = int(m_data.get("nb_accidents_avec_arret") or 0)
+            sans_arret = int(m_data.get("nb_accidents_sans_arret") or 0)
+            # RÈGLE UTILISATEUR STRICTE : somme entre avec arrêt et sans arrêt
+            total_acc = avec_arret + sans_arret
+            heures = float(m_data.get("nb_heures_travaillees") or 0.0)
+            jours = int(m_data.get("nb_jours_perdus") or 0)
+            salaries = int(m_data.get("nb_travailleurs") or m_data.get("nb_salaries") or 0)
+            visites = int(m_data.get("nb_visites_medicales") or 0)
+            maladies = int(m_data.get("nb_maladies_pro") or 0)
+            incap_perm = float(m_data.get("incapacite_permanente") or m_data.get("somme_taux_incapacite_perm") or 0.0)
+
+            # Calculs d'indicateurs par mois
+            tf = round((avec_arret / heures) * 1_000_000, 2) if heures > 0 else 0.0
+            inf = round((avec_arret / salaries) * 1_000, 2) if salaries > 0 else 0.0
+            tg = round((jours * 1_000) / heures, 4) if heures > 0 else 0.0
+            ig = round((incap_perm * 1_000) / heures, 4) if heures > 0 else 0.0
+
+            item = AccidentTravailMonthlyItem(
+                submission_id=submission.id,
+                mois_index=m_idx,
+                mois_label=f"{MOIS_LABELS[m_idx - 1]}-{annee_short}",
+                nb_accidents_total=total_acc,
+                nb_accidents_avec_arret=avec_arret,
+                nb_accidents_sans_arret=sans_arret,
+                nb_heures_travaillees=heures,
+                nb_jours_perdus=jours,
+                nb_travailleurs=salaries,
+                nb_visites_medicales=visites,
+                nb_maladies_pro=maladies,
+                tf_valeur=tf,
+                if_valeur=inf,
+                tg_valeur=tg,
+                ig_valeur=ig,
+                incapacite_permanente=incap_perm,
+            )
+            db.add(item)
+
+            tot_avec += avec_arret
+            tot_sans += sans_arret
+            tot_heures += heures
+            tot_jours += jours
+            tot_visites += visites
+            tot_maladies += maladies
+            if salaries > 0:
+                tot_salaries = salaries
+
+        submission.total_accidents_avec_arret = tot_avec
+        submission.total_accidents_sans_arret = tot_sans
+        submission.total_accidents = tot_avec + tot_sans
+        submission.total_heures_travaillees = tot_heures
+        submission.total_jours_perdus = tot_jours
+        submission.total_travailleurs = tot_salaries
+        submission.total_visites_medicales = tot_visites
+        submission.total_maladies_pro = tot_maladies
+
+        if tot_heures > 0:
+            submission.taux_frequence = round((tot_avec / tot_heures) * 1_000_000, 2)
+            submission.taux_gravite = round((tot_jours * 1_000) / tot_heures, 4)
+        if tot_salaries > 0:
+            submission.indice_frequence = round((tot_avec / tot_salaries) * 1_000, 2)
 
     @classmethod
     def _save_audit_items(cls, db: Session, audit_id: int, items_data: Dict[str, Any]):
@@ -347,6 +466,20 @@ class SubmissionService:
                     sub.nb_permis_feu = int(items_d["permis_feu"] or 0)
                 if "remarques" in items_d:
                     sub.remarques_specifiques = str(items_d["remarques"] or "")
+            elif isinstance(sub, AccidentTravailSubmission):
+                items_d = update_data["items_data"]
+                if "annee" in items_d:
+                    sub.annee = int(items_d["annee"])
+                if "target_if" in items_d:
+                    sub.target_if = float(items_d["target_if"])
+                if "target_tf" in items_d:
+                    sub.target_tf = float(items_d["target_tf"])
+                if "target_tg" in items_d:
+                    sub.target_tg = float(items_d["target_tg"])
+                if "target_ig" in items_d:
+                    sub.target_ig = float(items_d["target_ig"])
+                db.query(AccidentTravailMonthlyItem).filter(AccidentTravailMonthlyItem.submission_id == sub.id).delete()
+                cls._save_accident_travail_items(db, sub, items_d)
 
         db.commit()
         db.refresh(sub)
@@ -453,6 +586,58 @@ class SubmissionService:
                 "permis_hauteur": sub.nb_permis_hauteur,
                 "permis_feu": sub.nb_permis_feu,
                 "remarques": sub.remarques_specifiques or "",
+            }
+
+        elif isinstance(sub, AccidentTravailSubmission):
+            data["total_conforme"] = 0
+            data["total_non_conforme"] = 0
+            data["total_na"] = 0
+            data["count_soldee"] = 0
+            data["count_non_engagee"] = 0
+            data["count_en_cours"] = 0
+            data["count_en_retard"] = 0
+
+            months_dict = {}
+            for it in (sub.monthly_items or []):
+                months_dict[str(it.mois_index)] = {
+                    "mois_index": it.mois_index,
+                    "mois_label": it.mois_label,
+                    "nb_accidents_total": it.nb_accidents_total,
+                    "nb_accidents_avec_arret": it.nb_accidents_avec_arret,
+                    "nb_accidents_sans_arret": it.nb_accidents_sans_arret,
+                    "nb_heures_travaillees": it.nb_heures_travaillees,
+                    "nb_jours_perdus": it.nb_jours_perdus,
+                    "nb_travailleurs": it.nb_travailleurs,
+                    "nb_visites_medicales": it.nb_visites_medicales,
+                    "nb_maladies_pro": it.nb_maladies_pro,
+                    "tf_valeur": it.tf_valeur,
+                    "if_valeur": it.if_valeur,
+                    "tg_valeur": it.tg_valeur,
+                    "ig_valeur": it.ig_valeur,
+                    "incapacite_permanente": it.incapacite_permanente,
+                }
+
+            data["items_data"] = {
+                "annee": sub.annee,
+                "target_if": sub.target_if,
+                "target_tf": sub.target_tf,
+                "target_tg": sub.target_tg,
+                "target_ig": sub.target_ig,
+                "totals": {
+                    "total_accidents": sub.total_accidents,
+                    "total_accidents_avec_arret": sub.total_accidents_avec_arret,
+                    "total_accidents_sans_arret": sub.total_accidents_sans_arret,
+                    "total_heures_travaillees": sub.total_heures_travaillees,
+                    "total_jours_perdus": sub.total_jours_perdus,
+                    "total_travailleurs": sub.total_travailleurs,
+                    "total_visites_medicales": sub.total_visites_medicales,
+                    "total_maladies_pro": sub.total_maladies_pro,
+                    "taux_frequence": sub.taux_frequence,
+                    "indice_frequence": sub.indice_frequence,
+                    "taux_gravite": sub.taux_gravite,
+                    "indice_gravite": sub.indice_gravite,
+                },
+                "months": months_dict,
             }
         else:
             data["total_conforme"] = 0

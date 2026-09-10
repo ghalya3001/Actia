@@ -8,6 +8,8 @@ from app.models.submission import (
     TourneeHSEItem,
     PermisTravailSubmission,
     PhotoStorage,
+    AccidentTravailSubmission,
+    AccidentTravailMonthlyItem,
 )
 from app.models.dashboard import (
     KPIDefinition,
@@ -28,7 +30,10 @@ __all__ = [
     "TourneeHSEItem",
     "PermisTravailSubmission",
     "PhotoStorage",
+    "AccidentTravailSubmission",
+    "AccidentTravailMonthlyItem",
     "KPIDefinition",
     "KPISnapshot",
     "DashboardWidget",
 ]
+

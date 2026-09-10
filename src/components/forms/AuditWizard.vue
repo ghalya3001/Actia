@@ -1,6 +1,7 @@
 <script setup>
 import { ref, reactive, watch, computed } from 'vue';
-import { ArrowLeft, ChevronRight, ChevronLeft, Upload, CheckCircle, AlertTriangle, FileText, Shield, Flame, HardHat, Camera, X } from 'lucide-vue-next';
+import { ArrowLeft, ChevronRight, ChevronLeft, Upload, CheckCircle, AlertTriangle, FileText, Shield, Flame, HardHat, Camera, X, Activity, TrendingUp, BarChart3 } from 'lucide-vue-next';
+
 
 const props = defineProps(['formType', 'editingAudit']);
 const emit = defineEmits(['close', 'submitSuccess', 'showToast']);
@@ -131,13 +132,88 @@ const permisHauteur = ref(0);
 const permisFeu = ref(0);
 const permisRemarques = ref('');
 
+// Statistiques Accidents state
+const selectedAnnee = ref(2026);
+const targetIF = ref(2.5);
+const targetTF = ref(0.0);
+const targetTG = ref(0.0);
+const targetIG = ref(0.0);
+
+const MONTHS_KEYS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+const MONTHS_LABELS = ['janv.-26', 'févr.-26', 'mars-26', 'avr.-26', 'mai-26', 'juin-26', 'juil.-26', 'août-26', 'sept.-26', 'oct.-26', 'nov.-26', 'déc.-26'];
+
+const accidentData = reactive({});
+const initAccidentData = () => {
+  MONTHS_KEYS.forEach(m => {
+    accidentData[m] = {
+      nb_accidents_avec_arret: 0,
+      nb_accidents_sans_arret: 0,
+      nb_heures_travaillees: 0,
+      nb_jours_perdus: 0,
+      nb_travailleurs: 0,
+      nb_visites_medicales: 0,
+      nb_maladies_pro: 0,
+      incapacite_permanente: 0,
+    };
+  });
+};
+initAccidentData();
+
 // Checklist items answers state
 const answers = reactive({});
 
 const isPermis = computed(() => props.formType === 'permis_travail');
 const isTournee = computed(() => props.formType === 'tournee_hse');
+const isStatAccidents = computed(() => props.formType === 'statistiques_accidents' || props.formType === 'accident_travail');
 
 const questionsData = computed(() => isTournee.value ? TOURNEE_HSE_QUESTIONS_DATA : AUDIT_QUESTIONS_DATA);
+
+// RÈGLE MÉTIER FORMULAIRE UTILISATEUR :
+// La première ligne qui contient nombre d'accident de travail doit afficher la somme entre sans arrêt et avec arrêt
+const getAccidentTotal = (m) => {
+  const avec = Number(accidentData[m]?.nb_accidents_avec_arret) || 0;
+  const sans = Number(accidentData[m]?.nb_accidents_sans_arret) || 0;
+  return avec + sans;
+};
+
+const getTotalAnnuel = (field) => {
+  if (field === 'total_accidents') {
+    return MONTHS_KEYS.reduce((acc, m) => acc + getAccidentTotal(m), 0);
+  }
+  return MONTHS_KEYS.reduce((acc, m) => acc + (Number(accidentData[m]?.[field]) || 0), 0);
+};
+
+const getDernierEffectif = () => {
+  for (let i = MONTHS_KEYS.length - 1; i >= 0; i--) {
+    const sal = Number(accidentData[MONTHS_KEYS[i]]?.nb_travailleurs) || 0;
+    if (sal > 0) return sal;
+  }
+  return 0;
+};
+
+const getTF = (m) => {
+  const avec = Number(accidentData[m]?.nb_accidents_avec_arret) || 0;
+  const h = Number(accidentData[m]?.nb_heures_travaillees) || 0;
+  return h > 0 ? Math.round((avec / h) * 1000000) : 0;
+};
+
+const getIF = (m) => {
+  const avec = Number(accidentData[m]?.nb_accidents_avec_arret) || 0;
+  const sal = Number(accidentData[m]?.nb_travailleurs) || 0;
+  return sal > 0 ? ((avec / sal) * 1000).toFixed(2) : '0.00';
+};
+
+const getTG = (m) => {
+  const jp = Number(accidentData[m]?.nb_jours_perdus) || 0;
+  const h = Number(accidentData[m]?.nb_heures_travaillees) || 0;
+  return h > 0 ? ((jp * 1000) / h).toFixed(4) : '0.0000';
+};
+
+const getIG = (m) => {
+  const inc = Number(accidentData[m]?.incapacite_permanente) || 0;
+  const h = Number(accidentData[m]?.nb_heures_travaillees) || 0;
+  return h > 0 ? ((inc * 1000) / h).toFixed(4) : '0.0000';
+};
 
 watch(
   () => [props.editingAudit, props.formType],
@@ -154,12 +230,35 @@ watch(
         permisHauteur.value = items.permis_hauteur || 0;
         permisFeu.value = items.permis_feu || 0;
         permisRemarques.value = items.remarques || '';
+      } else if (isStatAccidents.value) {
+        const items = props.editingAudit.items_data || {};
+        selectedAnnee.value = items.annee || 2026;
+        targetIF.value = items.target_if !== undefined ? items.target_if : 2.5;
+        targetTF.value = items.target_tf !== undefined ? items.target_tf : 0.0;
+        targetTG.value = items.target_tg !== undefined ? items.target_tg : 0.0;
+        targetIG.value = items.target_ig !== undefined ? items.target_ig : 0.0;
+        const months = items.months || {};
+        MONTHS_KEYS.forEach(m => {
+          const mData = months[m] || months[String(m)] || {};
+          accidentData[m] = {
+            nb_accidents_avec_arret: mData.nb_accidents_avec_arret || 0,
+            nb_accidents_sans_arret: mData.nb_accidents_sans_arret || 0,
+            nb_heures_travaillees: mData.nb_heures_travaillees || 0,
+            nb_jours_perdus: mData.nb_jours_perdus || 0,
+            nb_travailleurs: mData.nb_travailleurs || 0,
+            nb_visites_medicales: mData.nb_visites_medicales || 0,
+            nb_maladies_pro: mData.nb_maladies_pro || 0,
+            incapacite_permanente: mData.incapacite_permanente || 0,
+          };
+        });
       } else {
         Object.keys(answers).forEach(k => delete answers[k]);
         Object.assign(answers, props.editingAudit.items_data || {});
       }
     } else {
-      if (!isPermis.value) {
+      if (isStatAccidents.value) {
+        initAccidentData();
+      } else if (!isPermis.value) {
         Object.keys(answers).forEach(k => delete answers[k]);
         questionsData.value.forEach(q => {
           answers[q.id] = { val: 1, constat: '', photo: '', action: '', resp: '', delai: '', etat: 'Non engagée', comm: '' };
@@ -188,7 +287,7 @@ const handlePhotoUpload = (qId, file) => {
 };
 
 const calculateScore = () => {
-  if (isPermis.value) return { score: '100.0', confCount: 0, nconfCount: 0, naCount: 0 };
+  if (isPermis.value || isStatAccidents.value) return { score: '100.0', confCount: 0, nconfCount: 0, naCount: 0 };
   let confCount = 0, nconfCount = 0, naCount = 0;
   questionsData.value.forEach(q => {
     const a = answers[q.id];
@@ -213,7 +312,7 @@ const handleSubmit = async () => {
   const API_AUDITS = window.location.origin + "/api/v1/audits";
   const token = localStorage.getItem("access_token");
 
-  let reference = isPermis.value ? 'FGSI-PERMIS' : (isTournee.value ? 'FGSI-010-Ind:A' : 'FGSI-001-Ind:F');
+  let reference = isStatAccidents.value ? 'FGSI-STAT-ACCIDENTS' : (isPermis.value ? 'FGSI-PERMIS' : (isTournee.value ? 'FGSI-010-Ind:A' : 'FGSI-001-Ind:F'));
   let itemsPayload = { ...answers };
   let scoreObject = { score: '100.0', confCount: 0, nconfCount: 0, naCount: 0 };
   let soldee = 0, non_engagee = 0, en_cours = 0, en_retard = 0;
@@ -224,6 +323,32 @@ const handleSubmit = async () => {
       permis_hauteur: parseInt(permisHauteur.value || 0, 10),
       permis_feu: parseInt(permisFeu.value || 0, 10),
       remarques: permisRemarques.value
+    };
+  } else if (isStatAccidents.value) {
+    const monthsPayload = {};
+    MONTHS_KEYS.forEach(m => {
+      const item = accidentData[m] || {};
+      const avec = Number(item.nb_accidents_avec_arret) || 0;
+      const sans = Number(item.nb_accidents_sans_arret) || 0;
+      monthsPayload[m] = {
+        nb_accidents_total: avec + sans,
+        nb_accidents_avec_arret: avec,
+        nb_accidents_sans_arret: sans,
+        nb_heures_travaillees: Number(item.nb_heures_travaillees) || 0,
+        nb_jours_perdus: Number(item.nb_jours_perdus) || 0,
+        nb_travailleurs: Number(item.nb_travailleurs) || 0,
+        nb_visites_medicales: Number(item.nb_visites_medicales) || 0,
+        nb_maladies_pro: Number(item.nb_maladies_pro) || 0,
+        incapacite_permanente: Number(item.incapacite_permanente) || 0,
+      };
+    });
+    itemsPayload = {
+      annee: selectedAnnee.value,
+      target_if: targetIF.value,
+      target_tf: targetTF.value,
+      target_tg: targetTG.value,
+      target_ig: targetIG.value,
+      months: monthsPayload,
     };
   } else {
     scoreObject = calculateScore();
@@ -245,10 +370,10 @@ const handleSubmit = async () => {
     intervenants: intervenants.value,
     date_audit: dateAudit.value,
     commentaires_generaux: commentairesGeneraux.value,
-    taux_conformite: isPermis.value ? 100.0 : parseFloat(scoreObject.score),
-    total_conforme: isPermis.value ? 0 : scoreObject.confCount,
-    total_non_conforme: isPermis.value ? 0 : scoreObject.nconfCount,
-    total_na: isPermis.value ? 0 : scoreObject.naCount,
+    taux_conformite: (isPermis.value || isStatAccidents.value) ? 100.0 : parseFloat(scoreObject.score),
+    total_conforme: (isPermis.value || isStatAccidents.value) ? 0 : scoreObject.confCount,
+    total_non_conforme: (isPermis.value || isStatAccidents.value) ? 0 : scoreObject.nconfCount,
+    total_na: (isPermis.value || isStatAccidents.value) ? 0 : scoreObject.naCount,
     count_soldee: soldee,
     count_non_engagee: non_engagee,
     count_en_cours: en_cours,
@@ -266,7 +391,7 @@ const handleSubmit = async () => {
       body: JSON.stringify(payload)
     });
     if (res.ok) {
-      emit('showToast', props.editingAudit ? `Fiche #ACTIA-${props.editingAudit.id} mise à jour avec succès !` : `Fiche ${isPermis.value ? 'Permis de Travail' : 'HSE'} enregistrée avec succès !`);
+      emit('showToast', props.editingAudit ? `Fiche #ACTIA-${props.editingAudit.id} mise à jour avec succès !` : `Fiche ${isStatAccidents.value ? 'Statistiques Accidents SST' : (isPermis.value ? 'Permis de Travail' : 'HSE')} enregistrée avec succès !`);
       emit('submitSuccess');
     } else {
       emit('showToast', "Erreur lors de la sauvegarde", 'error');
@@ -277,12 +402,12 @@ const handleSubmit = async () => {
 };
 
 const nextStep = () => {
-  if (isPermis.value && currentStep.value === 2) currentStep.value = 5;
+  if ((isPermis.value || isStatAccidents.value) && currentStep.value === 2) currentStep.value = 5;
   else if (currentStep.value < 5) currentStep.value++;
 };
 
 const prevStep = () => {
-  if (isPermis.value && currentStep.value === 5) currentStep.value = 2;
+  if ((isPermis.value || isStatAccidents.value) && currentStep.value === 5) currentStep.value = 2;
   else if (currentStep.value > 1) currentStep.value--;
 };
 
@@ -293,7 +418,7 @@ const steps = [1, 2, 3, 4, 5];
 
 const getStepLabel = (step) => {
   if (step === 1) return "Infos Générales";
-  if (step === 2) return isPermis.value ? "Permis & Saisie" : (isTournee.value ? "Sécurité & Chimiques" : "EPI & Opérateurs");
+  if (step === 2) return isPermis.value ? "Permis & Saisie" : (isStatAccidents.value ? "Grille Mensuelle SST" : (isTournee.value ? "Sécurité & Chimiques" : "EPI & Opérateurs"));
   if (step === 3) return isTournee.value ? "ATEX & Maintenance" : "5S & Machines";
   if (step === 4) return isTournee.value ? "Incendie & Déchets" : "Incendie & Ergonomie";
   return "Synthèse & Validation";
@@ -305,6 +430,7 @@ const isTargetStepForQuestion = (q, step) => {
   if (step === 4 && ((isTournee.value && (q.sec === 6 || q.sec === 7 || q.sec === 8)) || (!isTournee.value && (q.sec === 5 || q.sec === 6 || q.sec === 7)))) return true;
   return false;
 };
+
 </script>
 
 <template>
@@ -332,25 +458,25 @@ const isTargetStepForQuestion = (q, step) => {
       <div style="text-align: center;">
         <h2 style="font-size: 1.3rem; font-weight: 800; color: #0f172a;">
           <template v-if="editingAudit">
-            Modification {{ isPermis ? 'Permis' : (isTournee ? 'Tournée' : 'Audit') }} #ACTIA-{{ editingAudit.id }}
+            Modification {{ isStatAccidents ? 'Statistiques Accidents' : (isPermis ? 'Permis' : (isTournee ? 'Tournée' : 'Audit')) }} #ACTIA-{{ editingAudit.id }}
           </template>
           <template v-else>
-            {{ isPermis ? 'Permis de Travail (FGSI-PERMIS)' : (isTournee ? 'Tournée HSE Terrain (FGSI-010-Ind:A)' : 'Audit HSE Terrain (FGSI-001-Ind:F)') }}
+            {{ isStatAccidents ? 'Suivi Mensuel des Accidents & Santé (FGSI-STAT-ACCIDENTS)' : (isPermis ? 'Permis de Travail (FGSI-PERMIS)' : (isTournee ? 'Tournée HSE Terrain (FGSI-010-Ind:A)' : 'Audit HSE Terrain (FGSI-001-Ind:F)')) }}
           </template>
         </h2>
         <div style="font-size: 0.8rem; color: #64748b; font-weight: 600;">CIPI ACTIA — Portail HSE Responsable</div>
       </div>
       <span style="background: #003d4d; color: #a8e063; padding: 6px 14px; border-radius: 20px; font-weight: 800; font-size: 0.8rem;">
-        {{ isPermis ? 'Permis FGSI-PERMIS' : (isTournee ? 'Tournée FGSI-010-Ind:A' : 'Audit FGSI-001-Ind:F') }}
+        {{ isStatAccidents ? 'Réf: FGSI-STAT-ACCIDENTS' : (isPermis ? 'Permis FGSI-PERMIS' : (isTournee ? 'Tournée FGSI-010-Ind:A' : 'Audit FGSI-001-Ind:F')) }}
       </span>
     </div>
 
     <!-- STEPPER BAR -->
     <div style="display: flex; justify-content: space-between; position: relative; margin-bottom: 2.25rem;">
       <template v-for="step in steps" :key="step">
-        <div v-if="!(isPermis && (step === 3 || step === 4))" @click="currentStep = step" style="display: flex; flex-direction: column; align-items: center; cursor: pointer; z-index: 2;">
+        <div v-if="!((isPermis || isStatAccidents) && (step === 3 || step === 4))" @click="currentStep = step" style="display: flex; flex-direction: column; align-items: center; cursor: pointer; z-index: 2;">
           <div :style="{ width: '40px', height: '40px', borderRadius: '50%', background: currentStep === step ? '#00c996' : (currentStep > step ? '#56ab2f' : '#ffffff'), border: '3px solid', borderColor: currentStep === step ? '#00c996' : (currentStep > step ? '#56ab2f' : '#cbd5e1'), color: currentStep === step || currentStep > step ? '#fff' : '#64748b', fontWeight: '800', display: 'flex', alignItems: 'center', justifyContent: 'center' }">
-            {{ step === 5 && isPermis ? 3 : step }}
+            {{ step === 5 && (isPermis || isStatAccidents) ? 3 : step }}
           </div>
           <span :style="{ fontSize: '0.78rem', fontWeight: '700', color: currentStep === step ? '#0f172a' : '#64748b', marginTop: '8px' }">{{ getStepLabel(step) }}</span>
         </div>
@@ -372,6 +498,256 @@ const isTargetStepForQuestion = (q, step) => {
         <div>
           <label style="font-size: 0.82rem; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Intervenants / Responsables</label>
           <input type="text" class="light-input" placeholder="ex: M. Responsable HSE / Equipe" v-model="intervenants" required />
+        </div>
+        <div v-if="isStatAccidents">
+          <label style="font-size: 0.82rem; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Année de suivi</label>
+          <input type="number" class="light-input" v-model.number="selectedAnnee" min="2020" max="2035" required />
+        </div>
+      </div>
+    </div>
+
+    <!-- STEP 2: STATISTIQUES ACCIDENTS & SANTÉ MENSUELLE -->
+    <div v-if="currentStep === 2 && isStatAccidents" class="wizard-card" style="background: #fff; border-radius: 12px; padding: 1.5rem; border: 1px solid #e2e8f0;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 10px;">
+        <div>
+          <h3 style="font-size: 1.15rem; font-weight: 800; color: #d97706; display: flex; align-items: center; gap: 8px;">
+            <Activity :size="20" color="#d97706" /> Tableau Mensuel de Suivi des Accidents & Santé (Exercice {{ selectedAnnee }})
+          </h3>
+          <p style="font-size: 0.82rem; color: #64748b; margin-top: 2px;">
+            Tous les champs sont numériques. La 1ère ligne (Total Accidents) est la somme automatique des accidents avec arrêt et sans arrêt.
+          </p>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <span style="font-size: 0.78rem; font-weight: 700; color: #475569;">Cible IF (Target):</span>
+          <input type="number" step="0.1" v-model.number="targetIF" style="width: 70px; padding: 4px 8px; font-weight: 800; font-size: 0.85rem; border: 1px solid #cbd5e1; border-radius: 6px; text-align: center;" />
+        </div>
+      </div>
+
+      <!-- TABLEAU EXCEL GRID -->
+      <div style="overflow-x: auto; border: 1px solid #cbd5e1; border-radius: 8px; margin-bottom: 1.5rem;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem; text-align: center; min-width: 1100px;">
+          <thead>
+            <tr style="background: #003d4d; color: #fff;">
+              <th style="padding: 10px 14px; text-align: left; font-weight: 800; min-width: 260px; border: 1px solid #002833;">Données</th>
+              <th v-for="(lbl, idx) in MONTHS_LABELS" :key="idx" style="padding: 8px 4px; font-weight: 700; font-size: 0.75rem; border: 1px solid #002833; width: 75px;">
+                {{ lbl }}
+              </th>
+              <th style="padding: 10px 12px; font-weight: 800; background: #002833; color: #a8e063; min-width: 95px; border: 1px solid #001c24;">Total Annuel</th>
+            </tr>
+          </thead>
+          <tbody>
+
+            <!-- LIGNE 1 : NOMBRE D'ACCIDENTS (SOMME AVEC ARRET + SANS ARRET) -->
+            <tr style="background: #f0fdf4; border-bottom: 2px solid #bbf7d0;">
+              <td style="padding: 10px 14px; text-align: left; font-weight: 800; color: #166534; border: 1px solid #e2e8f0;">
+                ★ Nombre d'accident de travail <span style="font-size: 0.7rem; font-weight: 600; color: #15803d; display: block;">(Somme : Avec Arrêt + Sans Arrêt)</span>
+              </td>
+              <td v-for="m in MONTHS_KEYS" :key="'acc-tot-' + m" style="padding: 6px; border: 1px solid #e2e8f0; font-size: 0.95rem; font-weight: 800; color: #15803d; background: #dcfce7;">
+                {{ getAccidentTotal(m) }}
+              </td>
+              <td style="padding: 6px; border: 1px solid #e2e8f0; font-size: 1.05rem; font-weight: 800; color: #166534; background: #bbf7d0;">
+                {{ getTotalAnnuel('total_accidents') }}
+              </td>
+            </tr>
+
+            <!-- LIGNE 2 : ACCIDENTS AVEC ARRET -->
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 8px 14px; text-align: left; font-weight: 700; color: #334155; border: 1px solid #e2e8f0;">
+                Nombre d'accidents du travail avec arrêt
+              </td>
+              <td v-for="m in MONTHS_KEYS" :key="'acc-avec-' + m" style="padding: 4px; border: 1px solid #e2e8f0;">
+                <input type="number" min="0" v-model.number="accidentData[m].nb_accidents_avec_arret" style="width: 100%; padding: 6px 2px; text-align: center; font-weight: 700; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.85rem;" />
+              </td>
+              <td style="padding: 6px; border: 1px solid #e2e8f0; font-weight: 800; color: #0f172a; background: #f8fafc;">
+                {{ getTotalAnnuel('nb_accidents_avec_arret') }}
+              </td>
+            </tr>
+
+            <!-- LIGNE 3 : ACCIDENTS SANS ARRET -->
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 8px 14px; text-align: left; font-weight: 700; color: #334155; border: 1px solid #e2e8f0;">
+                Nombre d'accident de travail sans arrêt
+              </td>
+              <td v-for="m in MONTHS_KEYS" :key="'acc-sans-' + m" style="padding: 4px; border: 1px solid #e2e8f0;">
+                <input type="number" min="0" v-model.number="accidentData[m].nb_accidents_sans_arret" style="width: 100%; padding: 6px 2px; text-align: center; font-weight: 700; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.85rem;" />
+              </td>
+              <td style="padding: 6px; border: 1px solid #e2e8f0; font-weight: 800; color: #0f172a; background: #f8fafc;">
+                {{ getTotalAnnuel('nb_accidents_sans_arret') }}
+              </td>
+            </tr>
+
+            <!-- LIGNE 4 : HEURES TRAVAILLEES (JAUNE) -->
+            <tr style="background: #fef9c3; border-bottom: 1px solid #fde047;">
+              <td style="padding: 8px 14px; text-align: left; font-weight: 800; color: #854d0e; border: 1px solid #fde047;">
+                Nombre d'heures travaillées
+              </td>
+              <td v-for="m in MONTHS_KEYS" :key="'heures-' + m" style="padding: 4px; border: 1px solid #fde047;">
+                <input type="number" min="0" v-model.number="accidentData[m].nb_heures_travaillees" style="width: 100%; padding: 6px 2px; text-align: center; font-weight: 700; border: 1px solid #fde047; background: #fff; border-radius: 4px; font-size: 0.82rem; color: #854d0e;" />
+              </td>
+              <td style="padding: 6px; border: 1px solid #fde047; font-weight: 800; color: #854d0e; background: #fef08a;">
+                {{ getTotalAnnuel('nb_heures_travaillees').toLocaleString() }}
+              </td>
+            </tr>
+
+            <!-- LIGNE 5 : JOURS PERDUS -->
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 8px 14px; text-align: left; font-weight: 700; color: #334155; border: 1px solid #e2e8f0;">
+                nombre total de jours perdus (Accident avec Arrêt)
+              </td>
+              <td v-for="m in MONTHS_KEYS" :key="'jours-' + m" style="padding: 4px; border: 1px solid #e2e8f0;">
+                <input type="number" min="0" v-model.number="accidentData[m].nb_jours_perdus" style="width: 100%; padding: 6px 2px; text-align: center; font-weight: 700; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.85rem;" />
+              </td>
+              <td style="padding: 6px; border: 1px solid #e2e8f0; font-weight: 800; color: #0f172a; background: #f8fafc;">
+                {{ getTotalAnnuel('nb_jours_perdus') }}
+              </td>
+            </tr>
+
+            <!-- LIGNE 6 : NOMBRE DES TRAVAILLEURS (JAUNE) -->
+            <tr style="background: #fef9c3; border-bottom: 1px solid #fde047;">
+              <td style="padding: 8px 14px; text-align: left; font-weight: 800; color: #854d0e; border: 1px solid #fde047;">
+                Nombre des travailleurs
+              </td>
+              <td v-for="m in MONTHS_KEYS" :key="'salaries-' + m" style="padding: 4px; border: 1px solid #fde047;">
+                <input type="number" min="0" v-model.number="accidentData[m].nb_travailleurs" style="width: 100%; padding: 6px 2px; text-align: center; font-weight: 700; border: 1px solid #fde047; background: #fff; border-radius: 4px; font-size: 0.82rem; color: #854d0e;" />
+              </td>
+              <td style="padding: 6px; border: 1px solid #fde047; font-weight: 800; color: #854d0e; background: #fef08a;">
+                {{ getDernierEffectif() }} (eff.)
+              </td>
+            </tr>
+
+            <!-- LIGNE 7 : NOMBRE DES VISITES MEDICALES (JAUNE) -->
+            <tr style="background: #fef9c3; border-bottom: 1px solid #fde047;">
+              <td style="padding: 8px 14px; text-align: left; font-weight: 800; color: #854d0e; border: 1px solid #fde047;">
+                Nombre des visites médicales
+              </td>
+              <td v-for="m in MONTHS_KEYS" :key="'visites-' + m" style="padding: 4px; border: 1px solid #fde047;">
+                <input type="number" min="0" v-model.number="accidentData[m].nb_visites_medicales" style="width: 100%; padding: 6px 2px; text-align: center; font-weight: 700; border: 1px solid #fde047; background: #fff; border-radius: 4px; font-size: 0.82rem; color: #854d0e;" />
+              </td>
+              <td style="padding: 6px; border: 1px solid #fde047; font-weight: 800; color: #854d0e; background: #fef08a;">
+                {{ getTotalAnnuel('nb_visites_medicales') }}
+              </td>
+            </tr>
+
+            <!-- LIGNE 8 : NOMBRE DES MALADIES PROFESSIONNELLES (JAUNE) -->
+            <tr style="background: #fef9c3; border-bottom: 2px solid #e2e8f0;">
+              <td style="padding: 8px 14px; text-align: left; font-weight: 800; color: #854d0e; border: 1px solid #fde047;">
+                Nombre des maladies Professionnelle
+              </td>
+              <td v-for="m in MONTHS_KEYS" :key="'maladies-' + m" style="padding: 4px; border: 1px solid #fde047;">
+                <input type="number" min="0" v-model.number="accidentData[m].nb_maladies_pro" style="width: 100%; padding: 6px 2px; text-align: center; font-weight: 700; border: 1px solid #fde047; background: #fff; border-radius: 4px; font-size: 0.82rem; color: #854d0e;" />
+              </td>
+              <td style="padding: 6px; border: 1px solid #fde047; font-weight: 800; color: #854d0e; background: #fef08a;">
+                {{ getTotalAnnuel('nb_maladies_pro') }}
+              </td>
+            </tr>
+
+          </tbody>
+        </table>
+      </div>
+
+      <!-- TABLEAU 2 : INDICATEURS CALCULÉS TF, IF, TG, IG -->
+      <div style="margin-top: 1.75rem;">
+        <h4 style="font-size: 1rem; font-weight: 800; color: #0284c7; margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">
+          <TrendingUp :size="18" color="#0284c7" /> Indicateurs Clés de Sécurité Calculés (TF, IF, TG, IG)
+        </h4>
+        <div style="overflow-x: auto; border: 1px solid #cbd5e1; border-radius: 8px;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: center; min-width: 1100px;">
+            <thead>
+              <tr style="background: #0284c7; color: #fff;">
+                <th style="padding: 8px 14px; text-align: left; font-weight: 800; min-width: 260px; border: 1px solid #0369a1;">Indicateur</th>
+                <th v-for="(lbl, idx) in MONTHS_LABELS" :key="'kpi-lbl-' + idx" style="padding: 8px 4px; font-weight: 700; font-size: 0.75rem; border: 1px solid #0369a1; width: 75px;">
+                  {{ lbl }}
+                </th>
+                <th style="padding: 8px 12px; font-weight: 800; background: #0369a1; color: #fff; min-width: 95px; border: 1px solid #075985;">Cumul Annuel</th>
+              </tr>
+            </thead>
+            <tbody>
+              <!-- TF -->
+              <tr style="background: #f0fdf4; border-bottom: 1px solid #cbd5e1;">
+                <td style="padding: 8px 14px; text-align: left; font-weight: 800; color: #166534; border: 1px solid #e2e8f0;">
+                  TF : Taux de Fréquence <span style="font-size: 0.7rem; font-weight: 500; color: #64748b;">(Acc. arrêt / Heures) × 1M</span>
+                </td>
+                <td v-for="m in MONTHS_KEYS" :key="'tf-' + m" style="padding: 6px; border: 1px solid #e2e8f0; font-weight: 700; color: #166534;">
+                  {{ getTF(m) }}
+                </td>
+                <td style="padding: 6px; border: 1px solid #e2e8f0; font-weight: 800; color: #166534; background: #dcfce7;">
+                  {{ getTotalAnnuel('nb_heures_travaillees') > 0 ? Math.round((getTotalAnnuel('nb_accidents_avec_arret') / getTotalAnnuel('nb_heures_travaillees')) * 1000000) : 0 }}
+                </td>
+              </tr>
+
+              <!-- IF -->
+              <tr style="border-bottom: 1px solid #cbd5e1;">
+                <td style="padding: 8px 14px; text-align: left; font-weight: 800; color: #1e40af; border: 1px solid #e2e8f0;">
+                  IF : Indice de Fréquence <span style="font-size: 0.7rem; font-weight: 500; color: #64748b;">(Acc. arrêt / Salariés) × 1 000</span>
+                </td>
+                <td v-for="m in MONTHS_KEYS" :key="'if-' + m" :style="{
+                  padding: '6px',
+                  border: '1px solid #e2e8f0',
+                  fontWeight: '800',
+                  color: '#fff',
+                  background: Number(getIF(m)) > targetIF ? '#ef4444' : (Number(getIF(m)) > 0 ? '#10b981' : '#f8fafc')
+                }">
+                  <span :style="{ color: (Number(getIF(m)) === 0) ? '#64748b' : '#fff' }">{{ getIF(m) }}</span>
+                </td>
+                <td style="padding: 6px; border: 1px solid #e2e8f0; font-weight: 800; color: #1e40af; background: #dbeafe;">
+                  {{ getDernierEffectif() > 0 ? ((getTotalAnnuel('nb_accidents_avec_arret') / getDernierEffectif()) * 1000).toFixed(2) : '0.00' }}
+                </td>
+              </tr>
+
+              <!-- TARGET IF -->
+              <tr style="background: #fef2f2; border-bottom: 1px solid #cbd5e1;">
+                <td style="padding: 6px 14px; text-align: left; font-weight: 700; color: #991b1b; border: 1px solid #e2e8f0;">
+                  Target IF (Seuil cible)
+                </td>
+                <td v-for="m in MONTHS_KEYS" :key="'target-if-' + m" style="padding: 6px; border: 1px solid #e2e8f0; font-weight: 700; color: #991b1b;">
+                  {{ targetIF }}
+                </td>
+                <td style="padding: 6px; border: 1px solid #e2e8f0; font-weight: 800; color: #991b1b; background: #fee2e2;">
+                  {{ targetIF }}
+                </td>
+              </tr>
+
+              <!-- TG -->
+              <tr style="background: #fffbeb; border-bottom: 1px solid #cbd5e1;">
+                <td style="padding: 8px 14px; text-align: left; font-weight: 800; color: #b45309; border: 1px solid #e2e8f0;">
+                  TG : Taux de Gravité <span style="font-size: 0.7rem; font-weight: 500; color: #64748b;">(Jours perdus × 1 000) / Heures</span>
+                </td>
+                <td v-for="m in MONTHS_KEYS" :key="'tg-' + m" style="padding: 6px; border: 1px solid #e2e8f0; font-weight: 700; color: #b45309;">
+                  {{ getTG(m) }}
+                </td>
+                <td style="padding: 6px; border: 1px solid #e2e8f0; font-weight: 800; color: #b45309; background: #fef3c7;">
+                  {{ getTotalAnnuel('nb_heures_travaillees') > 0 ? ((getTotalAnnuel('nb_jours_perdus') * 1000) / getTotalAnnuel('nb_heures_travaillees')).toFixed(4) : '0.0000' }}
+                </td>
+              </tr>
+
+              <!-- SOMME TAUX INCAPACITE PERMANENTE (POUR IG) -->
+              <tr style="border-bottom: 1px solid #cbd5e1;">
+                <td style="padding: 6px 14px; text-align: left; font-weight: 700; color: #475569; border: 1px solid #e2e8f0;">
+                  Somme taux incapacité permanente (%)
+                </td>
+                <td v-for="m in MONTHS_KEYS" :key="'incap-' + m" style="padding: 4px; border: 1px solid #e2e8f0;">
+                  <input type="number" min="0" step="0.1" v-model.number="accidentData[m].incapacite_permanente" style="width: 100%; padding: 4px 2px; text-align: center; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.8rem;" />
+                </td>
+                <td style="padding: 6px; border: 1px solid #e2e8f0; font-weight: 700; color: #475569; background: #f8fafc;">
+                  {{ getTotalAnnuel('incapacite_permanente') }} %
+                </td>
+              </tr>
+
+              <!-- IG -->
+              <tr style="background: #faf5ff;">
+                <td style="padding: 8px 14px; text-align: left; font-weight: 800; color: #7e22ce; border: 1px solid #e2e8f0;">
+                  IG : Indice de Gravité <span style="font-size: 0.7rem; font-weight: 500; color: #64748b;">(Incap. perm. × 1 000) / Heures</span>
+                </td>
+                <td v-for="m in MONTHS_KEYS" :key="'ig-' + m" style="padding: 6px; border: 1px solid #e2e8f0; font-weight: 700; color: #7e22ce;">
+                  {{ getIG(m) }}
+                </td>
+                <td style="padding: 6px; border: 1px solid #e2e8f0; font-weight: 800; color: #7e22ce; background: #f3e8ff;">
+                  {{ getTotalAnnuel('nb_heures_travaillees') > 0 ? ((getTotalAnnuel('incapacite_permanente') * 1000) / getTotalAnnuel('nb_heures_travaillees')).toFixed(4) : '0.0000' }}
+                </td>
+              </tr>
+
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -408,7 +784,7 @@ const isTargetStepForQuestion = (q, step) => {
     </div>
 
     <!-- CHECKLIST ITEMS FOR AUDIT / TOURNÉE -->
-    <div v-if="!isPermis && (currentStep === 2 || currentStep === 3 || currentStep === 4)">
+    <div v-if="!isPermis && !isStatAccidents && (currentStep === 2 || currentStep === 3 || currentStep === 4)">
       <template v-for="q in questionsData" :key="q.id">
         <div v-if="isTargetStepForQuestion(q, currentStep)" style="background: #fff; border-radius: 10px; padding: 1.25rem; margin-bottom: 1rem; border: 1px solid #e2e8f0; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
           <div style="font-size: 0.93rem; font-weight: 700; color: #1e293b;">{{ q.id }}. {{ q.text }}</div>
@@ -494,14 +870,61 @@ const isTargetStepForQuestion = (q, step) => {
       <div style="background: linear-gradient(135deg, #003d4d 0%, #001c24 100%); color: #fff; border-radius: 12px; padding: 1.75rem; display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem;">
         <div>
           <div style="font-size: 0.85rem; font-weight: 700; text-transform: uppercase; color: #a8e063;">Synthèse de la Fiche</div>
-          <div style="font-size: 1.4rem; font-weight: 800; margin-top: 4px;">{{ isPermis ? 'Permis de Travail Enregistré' : 'Taux de Conformité HSE' }}</div>
+          <div style="font-size: 1.4rem; font-weight: 800; margin-top: 4px;">
+            {{ isStatAccidents ? `Bilan Annuel des Accidents SST ${selectedAnnee}` : (isPermis ? 'Permis de Travail Enregistré' : 'Taux de Conformité HSE') }}
+          </div>
         </div>
-        <div style="font-size: 2.5rem; font-weight: 800; font-family: var(--font-mono); color: #00c996;">
-          {{ isPermis ? 'FGSI-PERMIS' : `${scoreObj.score} %` }}
+        <div style="font-size: 2.2rem; font-weight: 800; font-family: var(--font-mono); color: #00c996;">
+          {{ isStatAccidents ? `TOTAL: ${getTotalAnnuel('total_accidents')}` : (isPermis ? 'FGSI-PERMIS' : `${scoreObj.score} %`) }}
         </div>
       </div>
 
-      <div v-if="isPermis" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+      <!-- SYNTHESE STATISTIQUES ACCIDENTS -->
+      <div v-if="isStatAccidents" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+        <div style="padding: 14px; background: #fff; border: 1px solid #e2e8f0; border-left: 4px solid #10b981; border-radius: 8px;">
+          <div style="font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase;">Total Accidents</div>
+          <div style="font-size: 1.6rem; font-weight: 800; color: #059669; margin-top: 4px;">{{ getTotalAnnuel('total_accidents') }}</div>
+          <div style="font-size: 0.75rem; color: #64748b;">{{ getTotalAnnuel('nb_accidents_avec_arret') }} avec arrêt · {{ getTotalAnnuel('nb_accidents_sans_arret') }} sans arrêt</div>
+        </div>
+
+        <div style="padding: 14px; background: #fff; border: 1px solid #e2e8f0; border-left: 4px solid #3b82f6; border-radius: 8px;">
+          <div style="font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase;">Heures Travaillées</div>
+          <div style="font-size: 1.6rem; font-weight: 800; color: #1d4ed8; margin-top: 4px;">{{ getTotalAnnuel('nb_heures_travaillees').toLocaleString() }} h</div>
+          <div style="font-size: 0.75rem; color: #64748b;">Cumul annuel</div>
+        </div>
+
+        <div style="padding: 14px; background: #fff; border: 1px solid #e2e8f0; border-left: 4px solid #ef4444; border-radius: 8px;">
+          <div style="font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase;">Jours Perdus</div>
+          <div style="font-size: 1.6rem; font-weight: 800; color: #b91c1c; margin-top: 4px;">{{ getTotalAnnuel('nb_jours_perdus') }} j</div>
+          <div style="font-size: 0.75rem; color: #64748b;">Incapacité temporaire</div>
+        </div>
+
+        <div style="padding: 14px; background: #fff; border: 1px solid #e2e8f0; border-left: 4px solid #0284c7; border-radius: 8px;">
+          <div style="font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase;">Taux Fréquence (TF)</div>
+          <div style="font-size: 1.6rem; font-weight: 800; color: #0284c7; margin-top: 4px;">
+            {{ getTotalAnnuel('nb_heures_travaillees') > 0 ? Math.round((getTotalAnnuel('nb_accidents_avec_arret') / getTotalAnnuel('nb_heures_travaillees')) * 1000000) : 0 }}
+          </div>
+          <div style="font-size: 0.75rem; color: #64748b;">Moyen annuel</div>
+        </div>
+
+        <div style="padding: 14px; background: #fff; border: 1px solid #e2e8f0; border-left: 4px solid #f59e0b; border-radius: 8px;">
+          <div style="font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase;">Indice Fréquence (IF)</div>
+          <div style="font-size: 1.6rem; font-weight: 800; color: #d97706; margin-top: 4px;">
+            {{ getDernierEffectif() > 0 ? ((getTotalAnnuel('nb_accidents_avec_arret') / getDernierEffectif()) * 1000).toFixed(2) : '0.00' }}
+          </div>
+          <div style="font-size: 0.75rem; color: #64748b;">Cible: {{ targetIF }}</div>
+        </div>
+
+        <div style="padding: 14px; background: #fff; border: 1px solid #e2e8f0; border-left: 4px solid #8b5cf6; border-radius: 8px;">
+          <div style="font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase;">Santé au Travail</div>
+          <div style="font-size: 1.4rem; font-weight: 800; color: #7c3aed; margin-top: 4px;">
+            {{ getTotalAnnuel('nb_visites_medicales') }} V. / {{ getTotalAnnuel('nb_maladies_pro') }} MP
+          </div>
+          <div style="font-size: 0.75rem; color: #64748b;">Visites / Maladies pro</div>
+        </div>
+      </div>
+
+      <div v-else-if="isPermis" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
         <div style="padding: 15px; background: #fff; border: 1px solid #e2e8f0; border-left: 4px solid #3b82f6; border-radius: 8px;">
           <div style="font-size: 0.8rem; font-weight: 700; color: #64748b;">Plan de Prévention</div>
           <div style="font-size: 1.6rem; font-weight: 800; color: #1d4ed8; margin-top: 4px;">{{ planPrevention }}</div>
@@ -551,6 +974,7 @@ const isTargetStepForQuestion = (q, step) => {
           </table>
         </div>
       </div>
+
 
       <div style="margin-bottom: 1.5rem;">
         <label style="font-size: 0.82rem; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Commentaires généraux des auditeurs / intervenants</label>

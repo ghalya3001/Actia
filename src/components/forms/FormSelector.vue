@@ -1,5 +1,5 @@
 <script setup>
-import { ClipboardCheck, ClipboardList, Shield, PenSquare } from 'lucide-vue-next';
+import { ClipboardCheck, ClipboardList, Shield, Activity, PenSquare } from 'lucide-vue-next';
 
 const emit = defineEmits(['selectForm']);
 </script>
@@ -67,5 +67,26 @@ const emit = defineEmits(['selectForm']);
       </button>
     </div>
 
+    <!-- CARD 4: STATISTIQUES ACCIDENTS & SANTÉ (FGSI-STAT-ACCIDENTS) -->
+    <div class="glass-card" style="display: flex; flex-direction: column; justify-content: space-between;">
+      <div>
+        <div style="width: 56px; height: 56px; border-radius: 12px; background: rgba(245,158,11,0.15); border: 1px solid #f59e0b; color: #f59e0b; display: flex; align-items: center; justify-content: center; margin-bottom: 1.25rem;">
+          <Activity :size="28" />
+        </div>
+        <h3 style="font-size: 1.2rem; font-weight: 800; color: #fff; margin-bottom: 8px;">Statistiques Accidents & Santé — Suivi Mensuel</h3>
+        <p style="font-size: 0.87rem; color: var(--text-muted); line-height: 1.6; margin-bottom: 1.25rem;">
+          Tableau de suivi des accidents du travail (avec et sans arrêt), heures travaillées, jours perdus, visites médicales et indicateurs TF/IF/TG.
+        </p>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 1.5rem;">
+          <span style="font-size: 0.72rem; font-weight: 700; padding: 4px 10px; border-radius: 20px; background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3);">Ref: FGSI-STAT-ACCIDENTS</span>
+          <span style="font-size: 0.72rem; font-weight: 700; padding: 4px 10px; border-radius: 20px; background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3);">12 Mois · 8 Indicateurs</span>
+        </div>
+      </div>
+      <button class="btn" @click="emit('selectForm', 'statistiques_accidents')" style="background: linear-gradient(135deg, #d97706 0%, #b45309 100%); color: #ffffff; box-shadow: 0 4px 15px rgba(217,119,6,0.35);">
+        <PenSquare :size="16" /> Remplir le Suivi des Accidents
+      </button>
+    </div>
+
   </div>
 </template>
+

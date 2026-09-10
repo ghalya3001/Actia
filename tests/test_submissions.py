@@ -231,3 +231,83 @@ def test_update_and_delete_audit(client, db_session):
     # Vérifier que l'audit n'existe plus
     get_res = client.get(f"/api/v1/audits/{audit_id}", headers=headers)
     assert get_res.status_code == 404
+
+
+def test_statistiques_accidents_submission(client, db_session):
+    token = get_auth_token(client)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    payload = {
+        "reference": "FGSI-STAT-ACCIDENTS",
+        "form_type": "statistiques_accidents",
+        "secteur": "Production Générale",
+        "intervenants": "Responsable HSE Actia",
+        "date_audit": "2026-09-10",
+        "commentaires_generaux": "Suivi mensuel des indicateurs SST",
+        "taux_conformite": 100.0,
+        "items_data": {
+            "annee": 2026,
+            "target_if": 2.5,
+            "months": {
+                "1": {
+                    "nb_accidents_avec_arret": 2,
+                    "nb_accidents_sans_arret": 3,
+                    "nb_heures_travaillees": 78507,
+                    "nb_jours_perdus": 20,
+                    "nb_travailleurs": 510,
+                    "nb_visites_medicales": 15,
+                    "nb_maladies_pro": 1,
+                    "incapacite_permanente": 20.0
+                },
+                "2": {
+                    "nb_accidents_avec_arret": 1,
+                    "nb_accidents_sans_arret": 1,
+                    "nb_heures_travaillees": 68822,
+                    "nb_jours_perdus": 18,
+                    "nb_travailleurs": 504,
+                    "nb_visites_medicales": 10,
+                    "nb_maladies_pro": 0,
+                    "incapacite_permanente": 18.0
+                }
+            }
+        }
+    }
+
+    # 1. POST
+    post_res = client.post("/api/v1/audits/", json=payload, headers=headers)
+    assert post_res.status_code == 201, post_res.text
+    res_data = post_res.json()
+    sub_id = res_data["id"]
+
+    # 2. Vérification règle utilisateur : Ligne 1 = Ligne 2 + Ligne 3 (2 + 3 = 5)
+    assert "items_data" in res_data
+    months = res_data["items_data"]["months"]
+    assert months["1"]["nb_accidents_total"] == 5
+    assert months["1"]["nb_accidents_avec_arret"] == 2
+    assert months["1"]["nb_accidents_sans_arret"] == 3
+    assert months["1"]["nb_heures_travaillees"] == 78507
+    assert months["1"]["nb_jours_perdus"] == 20
+    assert months["1"]["nb_travailleurs"] == 510
+
+    # Vérification indicateurs TF, IF, TG, IG
+    # TF = (2 / 78507) * 1 000 000 ≈ 25.48
+    # IF = (2 / 510) * 1000 ≈ 3.92
+    assert months["1"]["tf_valeur"] > 25.0
+    assert months["1"]["if_valeur"] > 3.9
+
+    # Mois 2 : (1 + 1 = 2)
+    assert months["2"]["nb_accidents_total"] == 2
+
+    # Vérification totaux consolidés
+    totals = res_data["items_data"]["totals"]
+    assert totals["total_accidents_avec_arret"] == 3
+    assert totals["total_accidents_sans_arret"] == 4
+    assert totals["total_accidents"] == 7
+
+    # 3. GET /audits/{id}
+    get_res = client.get(f"/api/v1/audits/{sub_id}", headers=headers)
+    assert get_res.status_code == 200
+    get_data = get_res.json()
+    assert get_data["form_type"] == "statistiques_accidents"
+    assert get_data["items_data"]["months"]["1"]["nb_accidents_total"] == 5
+
