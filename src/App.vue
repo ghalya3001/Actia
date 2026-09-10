@@ -200,7 +200,7 @@ const handleExecuteDelete = async () => {
 
         <!-- PAGE DASHBOARD -->
         <div v-if="currentPage === 'dashboard'" class="page-anim">
-          <HseDashboard />
+          <HseDashboard @show-toast="showToast" />
         </div>
 
         <!-- PAGE PROFILE -->
