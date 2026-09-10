@@ -61,8 +61,36 @@ classDiagram
         +datetime created_at
     }
 
+    class Refresh_Tokens {
+        +int id
+        +int user_id
+        +string token_hash
+        +datetime expires_at
+        +boolean is_revoked
+    }
+
+    class Token_Blacklist {
+        +int id
+        +string jti
+        +datetime revoked_at
+        +datetime expires_at
+    }
+
+    class Password_Reset_Tokens {
+        +int id
+        +int user_id
+        +string email
+        +string otp_code_hash
+        +datetime expires_at
+        +boolean is_verified
+        +boolean is_used
+    }
+
     Users "1" --> "0..*" User_session : possède
     Users "1" --> "0..*" Pwd_reset_request : possède
+    Users "1" --> "0..*" Refresh_Tokens : détient
+    Users "1" --> "0..*" Token_Blacklist : révoque
+    Users "1" --> "0..*" Password_Reset_Tokens : demande
 
     %% ==========================================
     %% 2. CLASSE MÈRE POLYMORPHIQUE
@@ -148,12 +176,24 @@ classDiagram
         +string remarques
     }
 
+    class Photo_Storage {
+        +int id
+        +int item_id
+        +string item_type
+        +string file_path
+        +string original_filename
+        +int file_size_kb
+        +datetime uploaded_at
+    }
+
     Form_Submission <|-- Audit_HSE_Submission : Hérite
     Form_Submission <|-- Tournee_HSE_Submission : Hérite
     Form_Submission <|-- Permis_de_travail_Submission : Hérite
 
     Audit_HSE_Submission "1" --> "0..*" AuditHse_Items : contient
     Tournee_HSE_Submission "1" --> "0..*" TourneeHse_Items : contient
+    AuditHse_Items "1" --> "0..*" Photo_Storage : illustré par
+    TourneeHse_Items "1" --> "0..*" Photo_Storage : illustré par
 
     %% ==========================================
     %% 4. NOUVEAUX FORMULAIRES STATISTIQUES HSE
@@ -162,18 +202,27 @@ classDiagram
         +int id
         +int submission_id
         +int annee
-        +int total_accidents_annuel
+        +int total_accidents
         +int total_accidents_avec_arret
         +int total_accidents_sans_arret
         +float total_heures_travaillees
         +int total_jours_perdus
+        +int total_travailleurs
         +int total_visites_medicales
         +int total_maladies_pro
+        +float taux_frequence
+        +float indice_frequence
+        +float taux_gravite
+        +float indice_gravite
+        +float target_if
+        +float target_tf
+        +float target_tg
+        +float target_ig
     }
 
     class Accident_Travail_Monthly_Item {
         +int id_PK
-        +int accident_sub_id_FK
+        +int submission_id_FK
         +int mois_index
         +string mois_label
         +int nb_accidents_total
@@ -184,6 +233,11 @@ classDiagram
         +int nb_travailleurs
         +int nb_visites_medicales
         +int nb_maladies_pro
+        +float tf_valeur
+        +float if_valeur
+        +float tg_valeur
+        +float ig_valeur
+        +float incapacite_permanente
     }
 
     class Taux_Frequence_Submission {
@@ -304,6 +358,7 @@ classDiagram
     KPI_Definit "1" --> "0..*" KPI_snapshots : configure / alimente
     Dashboard_widgets "0..*" --> "1" KPI_Definit : affiché dans
     KPI_snapshots "1" --> "0..*" Dashboard_widgets : alimente
+    Accident_Travail_Submission "1" --> "0..*" KPI_snapshots : alimente
 ```
 
 ---
@@ -353,15 +408,28 @@ Chaque tableau dispose de ses règles métiers strictes, implémentées avec pro
 
 | Nom de Table | Type d'Héritage / Relation | Rôle Métier |
 |:---|:---|:---|
+| `users` | Table Principale | Utilisateurs, comptes responsables et authentification. |
+| `refresh_tokens` | Table Sécurité (`users.id`) | Persistance sécurisée des sessions OAuth2/JWT. |
+| `token_blacklist` | Table Sécurité | Révocation instantanée des jetons JTI lors des déconnexions. |
+| `password_reset_tokens` | Table Sécurité (`users.id`) | Réinitialisation de mot de passe par code OTP sécurisé. |
 | `form_submissions` | Table Mère (Joined Table Inheritance) | Métadonnées communes : identifiant, responsable, secteur, date, référence. |
-| `accident_travail_submissions` | Table Enfant (`form_submissions.id`) | Entête de la fiche annuelle des accidents et totaux annuels consolidés. |
-| `accident_travail_monthly_items` | Table Détail 1 $\rightarrow$ 12 | 12 enregistrements mensuels pour les 8 indicateurs d'accidents et santé. |
-| `taux_frequence_submissions` | Table Enfant (`form_submissions.id`) | Entête de la fiche de fréquence et cibles associées. |
+| `audit_hse_submissions` | Table Enfant (`form_submissions.id`) | Fiches d'Audit HSE (FGSI-001) et statistiques de conformité. |
+| `audit_hse_items` | Table Détail (`audit_hse_submissions.id`) | Points de contrôle de l'audit (1 à 51), constats et plans d'action. |
+| `tournee_hse_submissions` | Table Enfant (`form_submissions.id`) | Fiches de Tournée HSE (FGSI-010) et statistiques terrain. |
+| `tournee_hse_items` | Table Détail (`tournee_hse_submissions.id`) | Points de contrôle de la tournée (101 à 142) et actions correctives. |
+| `permis_travail_submissions` | Table Enfant (`form_submissions.id`) | Fiches Permis de Travail (plans prévention, hauteur, feu). |
+| `photo_storage` | Table Multimédia | Registre centralisé des photos rattachées aux constats d'audit et tournée. |
+| `accident_travail_submissions` | Table Enfant (`form_submissions.id`) | Entête annuelle consolidée : accidents, TF, IF, TG, IG et cibles cibles. |
+| `accident_travail_monthly_items` | Table Détail 1 $\rightarrow$ 12 | 12 enregistrements mensuels : accidents détaillés, heures, salariés, valeurs TF/IF/TG/IG. |
+| `taux_frequence_submissions` | Table Enfant (`form_submissions.id`) | Sous-vue analytique de fréquence et cibles associées. |
 | `taux_frequence_monthly_items` | Table Détail 1 $\rightarrow$ 12 | 12 enregistrements mensuels : TF calculé, IF calculé, Heures, Salariés, Target IF. |
-| `taux_gravite_submissions` | Table Enfant (`form_submissions.id`) | Entête de la fiche du taux de gravité. |
+| `taux_gravite_submissions` | Table Enfant (`form_submissions.id`) | Sous-vue analytique du taux de gravité. |
 | `taux_gravite_monthly_items` | Table Détail 1 $\rightarrow$ 12 | 12 enregistrements mensuels : TG calculé, Jours perdus/incapacité, Heures. |
-| `indice_gravite_submissions` | Table Enfant (`form_submissions.id`) | Entête de la fiche de l'indice de gravité. |
+| `indice_gravite_submissions` | Table Enfant (`form_submissions.id`) | Sous-vue analytique de l'indice de gravité. |
 | `indice_gravite_monthly_items` | Table Détail 1 $\rightarrow$ 12 | 12 enregistrements mensuels : IG calculé, Incapacité permanente, Heures. |
+| `kpi_definitions` | Catalogue Moteur Décisionnel | Définitions des indicateurs, tables sources, agrégations et formats de graphiques. |
+| `kpi_snapshots` | Table Cache Haute Performance | Résultats précalculés pour l'alimentation instantanée du Dashboard (< 10ms). |
+| `dashboard_widgets` | Configuration Personnalisée | Grille personnalisée par responsable (position, dimension, KPI rattaché). |
 
 ---
 
