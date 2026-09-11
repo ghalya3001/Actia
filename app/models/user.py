@@ -12,43 +12,37 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
-    reset_tokens = relationship("PasswordResetToken", back_populates="user", cascade="all, delete-orphan")
-    refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
+    sessions = relationship("UserSession", back_populates="user", cascade="all, delete-orphan")
+    pwd_reset_requests = relationship("PwdResetRequest", back_populates="user", cascade="all, delete-orphan")
     submissions = relationship("FormSubmission", back_populates="user", cascade="all, delete-orphan")
     kpi_snapshots = relationship("KPISnapshot", back_populates="user", cascade="all, delete-orphan")
     dashboard_widgets = relationship("DashboardWidget", back_populates="user", cascade="all, delete-orphan")
 
 
-class PasswordResetToken(Base):
-    __tablename__ = "password_reset_tokens"
+class UserSession(Base):
+    __tablename__ = "user_session"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    refresh_token_hash = Column(String(255), index=True, nullable=True)
+    access_jti = Column(String(255), index=True, nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    last_used_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=True)
+
+    user = relationship("User", back_populates="sessions")
+
+
+class PwdResetRequest(Base):
+    __tablename__ = "pwd_reset_request"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     email = Column(String(255), index=True, nullable=False)
-    otp_code_hash = Column(String(255), index=True, nullable=False)
+    otp_hash = Column(String(255), nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=False)
-    is_verified = Column(Boolean, default=False)
-    is_used = Column(Boolean, default=False)
+    is_used = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
-    user = relationship("User", back_populates="reset_tokens")
-
-
-class RefreshToken(Base):
-    __tablename__ = "refresh_tokens"
-
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    token_hash = Column(String(255), index=True, nullable=False)
-    expires_at = Column(DateTime(timezone=True), nullable=False)
-    is_revoked = Column(Boolean, default=False)
-
-    user = relationship("User", back_populates="refresh_tokens")
-
-
-class TokenBlacklist(Base):
-    __tablename__ = "token_blacklist"
-
-    id = Column(Integer, primary_key=True, index=True)
-    jti = Column(String(255), unique=True, index=True, nullable=False)
-    revoked_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    expires_at = Column(DateTime(timezone=True), nullable=False)
+    user = relationship("User", back_populates="pwd_reset_requests")

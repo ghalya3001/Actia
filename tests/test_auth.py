@@ -1,6 +1,6 @@
 import pytest
 from app.core.security import hash_password, verify_password, generate_otp_code
-from app.models.user import PasswordResetToken
+from app.models.user import PwdResetRequest
 
 def test_password_hashing():
     pwd = "SecretPassword123!"
@@ -169,9 +169,9 @@ def test_forgot_and_reset_password_otp_flow(client, db_session):
 
     # 3. Simulate OTP code for testing
     otp_code = "849201"
-    token_record = db_session.query(PasswordResetToken).filter(PasswordResetToken.email == "forgot_otp@platformactia.com").first()
+    token_record = db_session.query(PwdResetRequest).filter(PwdResetRequest.email == "forgot_otp@platformactia.com").first()
     assert token_record is not None
-    token_record.otp_code_hash = hash_password(otp_code)
+    token_record.otp_hash = hash_password(otp_code)
     db_session.commit()
 
     # 4. Verify OTP Code

@@ -16,7 +16,7 @@ from app.core.security import (
     generate_refresh_token,
     generate_otp_code,
 )
-from app.models.user import User, PasswordResetToken, RefreshToken, TokenBlacklist
+from app.models.user import User, UserSession, PwdResetRequest
 from app.schemas.user import (
     UserCreate,
     UserResponse,
@@ -87,13 +87,14 @@ def login(
     access_token, jti, exp_at = create_access_token(subject=user.email)
     raw_refresh_token, ref_expires_at = generate_refresh_token()
 
-    ref_record = RefreshToken(
+    session_record = UserSession(
         user_id=user.id,
-        token_hash=hash_password(raw_refresh_token),
+        refresh_token_hash=hash_password(raw_refresh_token),
+        access_jti=jti,
+        is_active=True,
         expires_at=ref_expires_at,
-        is_revoked=False
     )
-    db.add(ref_record)
+    db.add(session_record)
     db.commit()
 
     return Token(
@@ -112,43 +113,44 @@ def refresh_token(
     Exchange a valid Refresh Token for a fresh Access Token and new Refresh Token.
     """
     now = datetime.now(timezone.utc)
-    active_refresh_tokens = db.query(RefreshToken).filter(
-        RefreshToken.is_revoked == False,
-        RefreshToken.expires_at > now
+    active_sessions = db.query(UserSession).filter(
+        UserSession.is_active == True,
+        UserSession.expires_at > now
     ).all()
 
-    target_record = None
-    for rec in active_refresh_tokens:
-        if verify_password(body.refresh_token, rec.token_hash):
-            target_record = rec
+    target_session = None
+    for s in active_sessions:
+        if s.refresh_token_hash and verify_password(body.refresh_token, s.refresh_token_hash):
+            target_session = s
             break
 
-    if not target_record:
+    if not target_session:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired refresh token",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    user = db.query(User).filter(User.id == target_record.user_id).first()
+    user = db.query(User).filter(User.id == target_session.user_id).first()
     if not user or not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User account is disabled or missing"
         )
 
-    target_record.is_revoked = True
+    target_session.is_active = False
 
     new_access_token, jti, exp_at = create_access_token(subject=user.email)
     new_raw_refresh, new_ref_exp = generate_refresh_token()
 
-    new_ref_record = RefreshToken(
+    new_session = UserSession(
         user_id=user.id,
-        token_hash=hash_password(new_raw_refresh),
+        refresh_token_hash=hash_password(new_raw_refresh),
+        access_jti=jti,
+        is_active=True,
         expires_at=new_ref_exp,
-        is_revoked=False
     )
-    db.add(new_ref_record)
+    db.add(new_session)
     db.commit()
 
     return Token(
@@ -170,16 +172,12 @@ def logout(
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         jti = payload.get("jti")
-        exp = payload.get("exp")
-        expires_at = datetime.fromtimestamp(exp, tz=timezone.utc) if exp else datetime.now(timezone.utc) + timedelta(minutes=60)
-        
         if jti:
-            blacklist_entry = TokenBlacklist(jti=jti, expires_at=expires_at)
-            db.add(blacklist_entry)
+            db.query(UserSession).filter(UserSession.access_jti == jti).update({"is_active": False})
     except Exception:
         pass
 
-    db.query(RefreshToken).filter(RefreshToken.user_id == current_user.id).update({"is_revoked": True})
+    db.query(UserSession).filter(UserSession.user_id == current_user.id).update({"is_active": False})
     db.commit()
 
     return MsgResponse(message="Successfully logged out.")
@@ -238,12 +236,11 @@ def forgot_password(
     otp_hash = hash_password(otp_code)
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.RESET_TOKEN_EXPIRE_MINUTES)
 
-    reset_record = PasswordResetToken(
+    reset_record = PwdResetRequest(
         user_id=user.id,
         email=user.email,
-        otp_code_hash=otp_hash,
+        otp_hash=otp_hash,
         expires_at=expires_at,
-        is_verified=False,
         is_used=False
     )
     db.add(reset_record)
@@ -267,15 +264,15 @@ def verify_otp(
     Validate 6-digit OTP code submitted by the user.
     """
     now = datetime.now(timezone.utc)
-    active_otps = db.query(PasswordResetToken).filter(
-        PasswordResetToken.email == body.email,
-        PasswordResetToken.is_used == False,
-        PasswordResetToken.expires_at > now
-    ).order_by(PasswordResetToken.id.desc()).all()
+    active_otps = db.query(PwdResetRequest).filter(
+        PwdResetRequest.email == body.email,
+        PwdResetRequest.is_used == False,
+        PwdResetRequest.expires_at > now
+    ).order_by(PwdResetRequest.id.desc()).all()
 
     target_otp_record = None
     for rec in active_otps:
-        if verify_password(body.otp_code, rec.otp_code_hash):
+        if verify_password(body.otp_code, rec.otp_hash):
             target_otp_record = rec
             break
 
@@ -284,9 +281,6 @@ def verify_otp(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired 6-digit verification code."
         )
-
-    target_otp_record.is_verified = True
-    db.commit()
 
     return MsgResponse(message="Verification code validated successfully. You can now reset your password.")
 
@@ -300,15 +294,15 @@ def reset_password(
     Validate 6-digit OTP code and update user's password securely.
     """
     now = datetime.now(timezone.utc)
-    active_otps = db.query(PasswordResetToken).filter(
-        PasswordResetToken.email == body.email,
-        PasswordResetToken.is_used == False,
-        PasswordResetToken.expires_at > now
-    ).order_by(PasswordResetToken.id.desc()).all()
+    active_otps = db.query(PwdResetRequest).filter(
+        PwdResetRequest.email == body.email,
+        PwdResetRequest.is_used == False,
+        PwdResetRequest.expires_at > now
+    ).order_by(PwdResetRequest.id.desc()).all()
 
     target_otp_record = None
     for rec in active_otps:
-        if verify_password(body.otp_code, rec.otp_code_hash):
+        if verify_password(body.otp_code, rec.otp_hash):
             target_otp_record = rec
             break
 

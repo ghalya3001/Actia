@@ -1,4 +1,4 @@
-from app.models.user import User, PasswordResetToken, RefreshToken, TokenBlacklist
+from app.models.user import User, UserSession, PwdResetRequest
 from app.models.audit import HSEAudit
 from app.models.submission import (
     FormSubmission,
@@ -19,9 +19,8 @@ from app.models.dashboard import (
 
 __all__ = [
     "User",
-    "PasswordResetToken",
-    "RefreshToken",
-    "TokenBlacklist",
+    "UserSession",
+    "PwdResetRequest",
     "HSEAudit",
     "FormSubmission",
     "AuditHSESubmission",
