@@ -1,3 +1,19 @@
+<!--
+  =============================================================================
+  Composant : HseDashboard.vue
+  Description : Tableau de bord décisionnel et opérationnel HSE (Health, Safety, Environment)
+                de la plateforme CIPI ACTIA.
+  Fonctionnalités :
+    - 4 Scorecards exécutives de synthèse : TF mensuel, Taux de conformité, Actions en retard, Jours sans accident
+    - Studio de KPIs personnalisés avec stockage local et croisement multi-données
+    - Visualisations graphiques avancées (Chart.js / vue-chartjs) :
+        * Courbe combinée TF & IF vs Cible réglementaire 2.50
+        * Évolution hebdomadaire du taux de conformité
+        * Radar d'évaluation des 7 thématiques de sécurité (FGSI-001 / FGSI-010)
+        * Donut de répartition des statuts d'actions correctives
+    - Tableau opérationnel de pilotage des actions correctives en retard avec filtrage multicritère
+  =============================================================================
+-->
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import {
@@ -30,6 +46,7 @@ import {
   Info
 } from 'lucide-vue-next'
 
+// Importations optimisées des composants Chart.js
 import {
   Chart as ChartJS,
   ArcElement,
@@ -47,6 +64,7 @@ import {
 import { Doughnut, Line, Radar, Bar } from 'vue-chartjs'
 import KpiDefinitionModal from './KpiDefinitionModal.vue'
 
+// Enregistrement global des composants Chart.js requis pour les 4 types de graphiques
 ChartJS.register(
   ArcElement,
   Tooltip,
@@ -61,13 +79,19 @@ ChartJS.register(
   Filler
 )
 
+// Définition des événements émis (toasts de confirmation et notifications)
 const emit = defineEmits(['showToast'])
 
 // ============================================================================
 // 0. STUDIO DE KPIS PERSONNALISÉS (DÉFINITIONS UTILISATEUR & MULTI-DONNÉES)
 // ============================================================================
+
+// Contrôle l'ouverture/fermeture de la modale de définition de KPI
 const showKpiModal = ref(false)
 
+/**
+ * Catalogue initial des KPIs personnalisés fournis par défaut lors du premier lancement
+ */
 const DEFAULT_CUSTOM_KPIS = [
   {
     id: 101,
@@ -183,8 +207,12 @@ const DEFAULT_CUSTOM_KPIS = [
   }
 ]
 
+// Liste réactive des KPIs personnalisés configurés
 const customKpis = ref([])
 
+/**
+ * Au montage du composant : chargement des KPIs depuis le localStorage navigateur
+ */
 onMounted(() => {
   const saved = localStorage.getItem('actia_custom_kpis')
   if (saved) {
@@ -199,12 +227,18 @@ onMounted(() => {
   }
 })
 
+/**
+ * Enregistre un nouveau KPI configuré dans le studio et met à jour le localStorage
+ */
 const handleSaveCustomKpi = (newKpi) => {
   customKpis.value.unshift(newKpi)
   localStorage.setItem('actia_custom_kpis', JSON.stringify(customKpis.value))
   emit('showToast', `KPI "${newKpi.title}" défini et ajouté avec succès !`)
 }
 
+/**
+ * Supprime un KPI personnalisé par son identifiant unique
+ */
 const handleDeleteCustomKpi = (id) => {
   customKpis.value = customKpis.value.filter((k) => k.id !== id)
   localStorage.setItem('actia_custom_kpis', JSON.stringify(customKpis.value))
@@ -215,13 +249,15 @@ const handleDeleteCustomKpi = (id) => {
 // 1. ÉTAT RÉACTIF & DONNÉES STATIQUES DU DASHBOARD (CONCEPTION BDD)
 // ============================================================================
 
-// Filtres du tableau opérationnel
+// Filtres du tableau opérationnel des actions
 const selectedSecteur = ref('all')
 const selectedResponsable = ref('all')
 const searchQuery = ref('')
 const isRefreshing = ref(false)
 
-// Simule un recalcul des snapshots via le service BDD
+/**
+ * Simule une synchronisation et recalcul des snapshots d'indicateurs
+ */
 const handleRefreshSnapshots = () => {
   isRefreshing.value = true
   setTimeout(() => {
@@ -230,7 +266,7 @@ const handleRefreshSnapshots = () => {
 }
 
 // ============================================================================
-// 2. CONFIGURATION DES GRAPHIQUES (CHART.JS)
+// 2. CONFIGURATION DES GRAPHIQUES OFFICIELS (CHART.JS)
 // ============================================================================
 
 // --- GRAPHIQUE 1 : Courbe mensuelle combinée : TF & IF vs Objectif (Target 2,5) ---
@@ -504,6 +540,9 @@ const actionsDonutOptions = {
 // 3. TABLEAU OPÉRATIONNEL : ACTIONS CORRECTIVES EN RETARD
 // ============================================================================
 
+/**
+ * Données brutes des actions correctives en retard d'échéance
+ */
 const rawActionsEnRetard = [
   {
     id: 1,
@@ -567,7 +606,9 @@ const rawActionsEnRetard = [
   },
 ]
 
-// Filtrage dynamique réactif
+/**
+ * Filtrage dynamique réactif selon le secteur, le responsable et la recherche libre
+ */
 const filteredActions = computed(() => {
   return rawActionsEnRetard.filter((item) => {
     const matchSecteur = selectedSecteur.value === 'all' || item.secteur === selectedSecteur.value
@@ -585,6 +626,7 @@ const filteredActions = computed(() => {
   })
 })
 
+// Liste des secteurs disponibles pour le filtre déroulant
 const secteursList = [
   'Ligne Production CMS A',
   'Zone Stockage PDR',
@@ -593,6 +635,7 @@ const secteursList = [
   'Maintenance & Utilités',
 ]
 
+// Liste des responsables opérationnels pour le filtre déroulant
 const responsablesList = [
   'Jean Dupont',
   'Karim Ben Ali',
@@ -601,6 +644,7 @@ const responsablesList = [
   'Nadia Trabelsi',
 ]
 </script>
+
 
 <template>
   <div style="display: flex; flex-direction: column; gap: 1.5rem;" class="page-anim">
@@ -623,6 +667,7 @@ const responsablesList = [
       "
     >
       <div>
+        <!-- Badges d'identification du portail -->
         <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 4px;">
           <span
             style="
@@ -644,6 +689,7 @@ const responsablesList = [
             Site CIPI ACTIA Tunisie
           </span>
         </div>
+        <!-- Titre principal du dashboard -->
         <h1 style="font-size: 1.65rem; font-weight: 800; color: #ffffff; letter-spacing: -0.5px;">
           Tableau de Bord & Indicateurs de Performance HSE
         </h1>
@@ -652,8 +698,9 @@ const responsablesList = [
         </p>
       </div>
 
+      <!-- Boutons d'actions rapides de l'en-tête -->
       <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-        <!-- Bouton Définir un Nouveau KPI (Studio) -->
+        <!-- Bouton Définir un Nouveau KPI (Studio) : ouvre la modale KpiDefinitionModal -->
         <button
           @click="showKpiModal = true"
           style="
@@ -676,7 +723,7 @@ const responsablesList = [
           <span>+ Définir un Nouveau KPI</span>
         </button>
 
-        <!-- Bouton Refresh -->
+        <!-- Bouton Refresh : déclenche l'actualisation visuelle des données -->
         <button
           @click="handleRefreshSnapshots"
           :disabled="isRefreshing"
@@ -702,7 +749,7 @@ const responsablesList = [
     </div>
 
     <!-- ===================================================================== -->
-    <!-- BANDEAU SUPÉRIEUR (SCORECARDS DE SYNTHÈSE)                             -->
+    <!-- BANDEAU SUPÉRIEUR (SCORECARDS DE SYNTHÈSE STRATÉGIQUE)                 -->
     <!-- ===================================================================== -->
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.25rem;">
       
@@ -772,7 +819,7 @@ const responsablesList = [
         </div>
       </div>
 
-      <!-- CARTE 3 : Nombre d'actions en retard (EN SURBRILLANCE ROUGE VIF) -->
+      <!-- CARTE 3 : Nombre d'actions en retard (EN SURBRILLANCE ROUGE VIF AVEC ANIMATION) -->
       <div
         class="glass-card scorecard-card alert-card-pulsing"
         style="
@@ -902,6 +949,7 @@ const responsablesList = [
           </p>
         </div>
 
+        <!-- Bouton pour ouvrir la modale de création -->
         <button
           @click="showKpiModal = true"
           style="
@@ -925,7 +973,7 @@ const responsablesList = [
         </button>
       </div>
 
-      <!-- Grille des KPIs Personnalisés -->
+      <!-- Grille des widgets de KPIs Personnalisés enregistrés -->
       <div
         v-if="customKpis.length > 0"
         style="display: grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); gap: 1.5rem;"
@@ -971,7 +1019,7 @@ const responsablesList = [
                 </p>
               </div>
 
-              <!-- Bouton supprimer KPI -->
+              <!-- Bouton supprimer ce KPI personnalisé -->
               <button
                 @click="handleDeleteCustomKpi(kpi.id)"
                 title="Supprimer ce KPI personnalisé"
@@ -1011,7 +1059,7 @@ const responsablesList = [
 
             <!-- Rendu du graphique selon le type choisi -->
             <div style="height: 250px; position: relative;">
-              <!-- Scorecard Card -->
+              <!-- Cas Scorecard Card -->
               <div
                 v-if="kpi.chartType === 'card'"
                 style="
@@ -1036,28 +1084,28 @@ const responsablesList = [
                 </div>
               </div>
 
-              <!-- Line Chart -->
+              <!-- Cas Line Chart -->
               <Line
                 v-else-if="kpi.chartType === 'line'"
                 :data="kpi.chartData"
                 :options="kpi.chartOptions"
               />
 
-              <!-- Bar Chart -->
+              <!-- Cas Bar Chart -->
               <Bar
                 v-else-if="kpi.chartType === 'bar'"
                 :data="kpi.chartData"
                 :options="kpi.chartOptions"
               />
 
-              <!-- Doughnut Chart -->
+              <!-- Cas Doughnut Chart -->
               <Doughnut
                 v-else-if="kpi.chartType === 'doughnut'"
                 :data="kpi.chartData"
                 :options="kpi.chartOptions"
               />
 
-              <!-- Radar Chart -->
+              <!-- Cas Radar Chart -->
               <Radar
                 v-else-if="kpi.chartType === 'radar'"
                 :data="kpi.chartData"
@@ -1066,7 +1114,7 @@ const responsablesList = [
             </div>
           </div>
 
-          <!-- Pied de carte : métadonnées -->
+          <!-- Pied de carte : axe d'agrégation et date de création -->
           <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.05); font-size: 0.72rem; color: var(--text-dim);">
             <span>Axe : <strong style="color: #cbd5e1; text-transform: capitalize;">{{ kpi.periodicity === 'monthly' ? 'Mensuel' : kpi.periodicity === 'weekly' ? 'Hebdomadaire' : 'Par Secteur' }}</strong></span>
             <span>{{ kpi.metrics.length }} types de données croisés · Créé le {{ kpi.createdAt }}</span>
@@ -1074,7 +1122,7 @@ const responsablesList = [
         </div>
       </div>
 
-      <!-- État si aucun KPI personnalisé -->
+      <!-- État vide si aucun KPI personnalisé n'a encore été défini -->
       <div
         v-else
         style="
@@ -1226,7 +1274,7 @@ const responsablesList = [
           </div>
           <div style="height: 220px; position: relative;">
             <Doughnut :data="actionsDonutData" :options="actionsDonutOptions" />
-            <!-- Compteur central -->
+            <!-- Compteur central en pourcentage de résolution -->
             <div
               style="
                 position: absolute;
@@ -1346,7 +1394,7 @@ const responsablesList = [
             />
           </div>
 
-          <!-- Reset filtres si actifs -->
+          <!-- Bouton de réinitialisation des filtres si actifs -->
           <button
             v-if="selectedSecteur !== 'all' || selectedResponsable !== 'all' || searchQuery !== ''"
             @click="() => { selectedSecteur = 'all'; selectedResponsable = 'all'; searchQuery = '' }"
@@ -1365,7 +1413,7 @@ const responsablesList = [
         </div>
       </div>
 
-      <!-- TABLEAU DES ACTIONS -->
+      <!-- TABLEAU DES ACTIONS EN RETARD -->
       <div style="overflow-x: auto;">
         <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
           <thead>
@@ -1405,17 +1453,17 @@ const responsablesList = [
                 </div>
               </td>
 
-              <!-- Constat -->
+              <!-- Constat Non-Conforme -->
               <td style="padding: 12px; color: #fca5a5; max-width: 250px; line-height: 1.35;">
                 {{ item.constat }}
               </td>
 
-              <!-- Action Corrective -->
+              <!-- Action Corrective Engagée -->
               <td style="padding: 12px; color: #e2e8f0; max-width: 260px; line-height: 1.35; font-weight: 500;">
                 {{ item.action }}
               </td>
 
-              <!-- Responsable -->
+              <!-- Responsable désigné -->
               <td style="padding: 12px; color: #cbd5e1; font-weight: 600;">
                 <div style="display: flex; align-items: center; gap: 6px;">
                   <User :size="14" color="#60a5fa" />
@@ -1423,7 +1471,7 @@ const responsablesList = [
                 </div>
               </td>
 
-              <!-- Échéance & Retard -->
+              <!-- Échéance & Dépassement en jours -->
               <td style="padding: 12px;">
                 <div style="display: flex; flex-direction: column; gap: 3px;">
                   <span style="color: var(--text-muted); font-size: 0.78rem;">Prévu : {{ item.delai }}</span>
@@ -1470,7 +1518,7 @@ const responsablesList = [
               </td>
             </tr>
 
-            <!-- Ligne vide si aucun résultat -->
+            <!-- Ligne d'état si aucun résultat ne correspond aux filtres appliqués -->
             <tr v-if="filteredActions.length === 0">
               <td colspan="7" style="padding: 2rem; text-align: center; color: var(--text-dim);">
                 <CheckCircle2 :size="28" color="#10b981" style="margin: 0 auto 8px;" />
@@ -1482,7 +1530,7 @@ const responsablesList = [
         </table>
       </div>
 
-      <!-- FOOTER TABLEAU : COMPTEUR D'ACTIONS -->
+      <!-- FOOTER TABLEAU : COMPTEUR D'ACTIONS ET DE RESPONSABLES -->
       <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid rgba(255, 255, 255, 0.06); font-size: 0.78rem; color: var(--text-dim);">
         <div>
           Affichage de <strong style="color: #fff">{{ filteredActions.length }}</strong> action(s) en retard sur <strong style="color: #fff">{{ rawActionsEnRetard.length }}</strong> au total.
@@ -1506,6 +1554,7 @@ const responsablesList = [
 </template>
 
 <style scoped>
+/* Effets de survol sur les cartes de scorecards */
 .scorecard-card {
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
@@ -1514,10 +1563,12 @@ const responsablesList = [
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
 }
 
+/* Survol des lignes du tableau opérationnel */
 .table-row-hover:hover {
   background: rgba(255, 255, 255, 0.025);
 }
 
+/* Animation de rotation de l'icône de rafraîchissement */
 .spin-anim {
   animation: spin 0.7s linear infinite;
 }
@@ -1527,6 +1578,7 @@ const responsablesList = [
   to { transform: rotate(360deg); }
 }
 
+/* Animation d'impulsion lumineuse (Glow) pour les alertes critiques */
 .alert-card-pulsing {
   animation: pulseGlow 3s infinite ease-in-out;
 }

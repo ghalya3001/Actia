@@ -1,9 +1,31 @@
+<!--
+  =============================================================================
+  Composant : PrintReport.vue
+  Description : Gabarit d'impression papier et export PDF officiel conforme à la charte
+                qualité et sécurité de CIPI ACTIA.
+  Fonctionnalités :
+    - Déclenchement automatique de l'instruction native du navigateur `window.print()`
+    - Prise en charge des différents types de formulaires (Audits, Tournées, Permis, Statistiques)
+    - Tableau complet des actions correctives extraites des réponses non-conformes
+    - Tableau mensuel détaillé pour les statistiques annuelles SST (TF, IF, TG, IG)
+    - Bloc de signatures formelles (Auditeur, Date de validation, Responsable HSE)
+  =============================================================================
+-->
 <script setup>
 import { onMounted, watch, computed } from 'vue'
 
+// Propriétés entrantes :
+// - audit : Objet complet de la fiche d'audit / formulaire sélectionné pour impression
 const props = defineProps(['audit'])
+
+// Événements émis :
+// - afterPrint : Notifie le composant parent dès que la boîte de dialogue d'impression est déclenchée
 const emit = defineEmits(['afterPrint'])
 
+/**
+ * Déclenche l'impression du document via l'API navigateur window.print().
+ * Un délai de 400ms garantit que le rendu du DOM et des polices est finalisé.
+ */
 const triggerPrint = () => {
   if (props.audit) {
     setTimeout(() => {
@@ -13,32 +35,50 @@ const triggerPrint = () => {
   }
 }
 
+// Déclenchement automatique de l'impression au montage du composant
 onMounted(() => {
   triggerPrint()
 })
 
+// Surveillance réactive : redéclenche l'impression si l'objet audit change
 watch(() => props.audit, () => {
   triggerPrint()
 })
 
+// --- DÉTECTION DU TYPE DE FICHE ---
 const isPermis = computed(() => props.audit?.form_type === 'permis_travail' || props.audit?.reference === 'FGSI-PERMIS')
 const isTournee = computed(() => props.audit?.form_type === 'tournee_hse' || (props.audit?.reference && props.audit?.reference.includes('FGSI-010')))
 const isStatAccidents = computed(() => props.audit?.form_type === 'statistiques_accidents' || props.audit?.reference === 'FGSI-STAT-ACCIDENTS')
+
+/**
+ * Titre officiel de la fiche imprimée selon le type de formulaire
+ */
 const sheetTitle = computed(() => {
   if (isStatAccidents.value) return 'Statistiques Accidents & Santé — Suivi Mensuel'
   if (isPermis.value) return 'Permis de Travail'
   if (isTournee.value) return 'Tournée HSE'
   return 'Audit HSE Terrain'
 })
+
+/**
+ * Code de référence documentaire interne CIPI ACTIA
+ */
 const refCode = computed(() => {
   if (isStatAccidents.value) return 'FGSI-STAT-ACCIDENTS'
   if (isPermis.value) return 'FGSI-PERMIS'
   if (isTournee.value) return 'FGSI-010-Ind:A'
   return 'FGSI-001-Ind:F'
 })
+
+// Données JSON enrichies
 const items = computed(() => props.audit?.items_data || {})
+// Liste des mois pour l'affichage de la grille SST
 const monthsList = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']
 
+/**
+ * Extrait toutes les actions correctives issues de réponses marquées 'Non Conforme' (nc)
+ * ayant au minimum un constat renseigné ou une action corrective définie.
+ */
 const correctiveActions = computed(() => {
   const actions = []
   if (!props.audit || !props.audit.answers) return actions
@@ -51,14 +91,18 @@ const correctiveActions = computed(() => {
   return actions
 })
 
+// Styles inline dédiés pour garantir un rendu d'impression propre et net
 const cellStyle = { padding: '5px 6px', borderBottom: '1px solid #cbd5e1', fontSize: '8pt', verticalAlign: 'middle' }
 const thStyle = { padding: '6px 6px', borderBottom: '2px solid #cbd5e1', background: '#f1f5f9', fontWeight: '800', fontSize: '7.5pt', textTransform: 'uppercase', color: '#334155', textAlign: 'center' }
 </script>
 
 <template>
+  <!-- Zone d'impression dédiée (styles typographiques adaptés au format papier A4 / PDF) -->
   <div v-if="audit" class="print-area" style="background: #fff; color: #000; padding: 20px; font-size: 10pt; font-family: Arial, sans-serif;">
     
-    <!-- HEADER -->
+    <!-- ======================================================================= -->
+    <!-- EN-TÊTE DU RAPPORT D'IMPRESSION (HEADER)                                -->
+    <!-- ======================================================================= -->
     <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #003d4d; padding-bottom: 12px; margin-bottom: 15px;">
       <div>
         <div style="font-size: 0.75rem; font-weight: 700; color: #059669; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 2px;">CIPI ACTIA — Portail Responsable HSE</div>
@@ -72,21 +116,29 @@ const thStyle = { padding: '6px 6px', borderBottom: '2px solid #cbd5e1', backgro
       </div>
     </div>
 
-    <!-- METADATA GRID -->
+    <!-- ======================================================================= -->
+    <!-- GRILLE DES MÉTADONNÉES PRINCIPALES (Secteur, Intervenants, Scores)       -->
+    <!-- ======================================================================= -->
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; background: #f8fafc; padding: 12px; border-radius: 6px; border: 1px solid #cbd5e1; margin-bottom: 15px; font-size: 9.5pt;">
       <div><strong>Secteur / Zone :</strong> {{ audit.secteur }}</div>
       <div><strong>Intervenants / Responsables :</strong> {{ audit.intervenants }}</div>
+      
+      <!-- Affichage du taux pour les audits / tournées -->
       <template v-if="!isPermis && !isStatAccidents">
         <div><strong>Taux de Conformité HSE :</strong> <span style="font-size: 1.1rem; font-weight: 800; color: #059669;">{{ audit.taux_conformite }} %</span></div>
         <div><strong>Évaluations :</strong> {{ audit.total_conforme }} Conforme · {{ audit.total_non_conforme }} Non Conforme · {{ audit.total_na }} N/A</div>
       </template>
+
+      <!-- Affichage de la synthèse pour les statistiques d'accidents -->
       <template v-else-if="isStatAccidents">
         <div><strong>Année de Référence :</strong> <span style="font-size: 1.1rem; font-weight: 800; color: #d97706;">{{ items.annee || audit.secteur }}</span></div>
         <div><strong>Accidents Cumulés :</strong> {{ items.totaux?.nb_accidents_total ?? 0 }} total ({{ items.totaux?.nb_accidents_avec_arret ?? 0 }} avec arrêt) · <strong>Jours perdus :</strong> {{ items.totaux?.nb_jours_arret ?? 0 }}</div>
       </template>
     </div>
 
-    <!-- PERMIS DE TRAVAIL -->
+    <!-- ======================================================================= -->
+    <!-- SECTION PERMIS DE TRAVAIL                                               -->
+    <!-- ======================================================================= -->
     <table v-if="isPermis" style="width: 100%; border-collapse: collapse; margin-bottom: 15px; border: 1px solid #cbd5e1;">
       <thead>
         <tr>
@@ -110,7 +162,9 @@ const thStyle = { padding: '6px 6px', borderBottom: '2px solid #cbd5e1', backgro
       </tbody>
     </table>
 
-    <!-- STATISTIQUES ACCIDENTS TABLE -->
+    <!-- ======================================================================= -->
+    <!-- SECTION TABLEAU DES STATISTIQUES ACCIDENTS (12 MOIS + INDICATEURS)      -->
+    <!-- ======================================================================= -->
     <div v-if="isStatAccidents" style="margin-bottom: 20px; overflow-x: auto;">
       <table style="width: 100%; border-collapse: collapse; border: 1px solid #cbd5e1; font-size: 7.5pt; text-align: center;">
         <thead>
@@ -121,51 +175,61 @@ const thStyle = { padding: '6px 6px', borderBottom: '2px solid #cbd5e1', backgro
           </tr>
         </thead>
         <tbody>
+          <!-- 1. Total accidents -->
           <tr style="font-weight: 800; background: #f0fdf4;">
             <td :style="{ ...cellStyle, textAlign: 'left', color: '#166534' }">1. Nbr accident de travail (Total)</td>
             <td v-for="m in monthsList" :key="m" :style="cellStyle">{{ items.mois?.[m]?.nb_accidents_total ?? 0 }}</td>
             <td :style="{ ...cellStyle, fontWeight: '900', color: '#166534', background: '#dcfce7' }">{{ items.totaux?.nb_accidents_total ?? 0 }}</td>
           </tr>
+          <!-- 2. Accidents avec arrêt -->
           <tr>
             <td :style="{ ...cellStyle, textAlign: 'left' }">2. Nombre d'accident avec arrêt</td>
             <td v-for="m in monthsList" :key="m" :style="cellStyle">{{ items.mois?.[m]?.nb_accidents_avec_arret ?? 0 }}</td>
             <td :style="{ ...cellStyle, fontWeight: '800' }">{{ items.totaux?.nb_accidents_avec_arret ?? 0 }}</td>
           </tr>
+          <!-- 3. Accidents sans arrêt -->
           <tr>
             <td :style="{ ...cellStyle, textAlign: 'left' }">3. Nombre d'accident sans arrêt</td>
             <td v-for="m in monthsList" :key="m" :style="cellStyle">{{ items.mois?.[m]?.nb_accidents_sans_arret ?? 0 }}</td>
             <td :style="{ ...cellStyle, fontWeight: '800' }">{{ items.totaux?.nb_accidents_sans_arret ?? 0 }}</td>
           </tr>
+          <!-- 4. Jours d'arrêt -->
           <tr style="background: #fefce8;">
             <td :style="{ ...cellStyle, textAlign: 'left' }">4. Nombre de jours d'arrêt de travail</td>
             <td v-for="m in monthsList" :key="m" :style="cellStyle">{{ items.mois?.[m]?.nb_jours_arret ?? 0 }}</td>
             <td :style="{ ...cellStyle, fontWeight: '800' }">{{ items.totaux?.nb_jours_arret ?? 0 }}</td>
           </tr>
+          <!-- 5. Effectif moyen -->
           <tr>
             <td :style="{ ...cellStyle, textAlign: 'left' }">5. Effectif moyen (Salariés)</td>
             <td v-for="m in monthsList" :key="m" :style="cellStyle">{{ items.mois?.[m]?.nb_salaries ?? 0 }}</td>
             <td :style="{ ...cellStyle, fontWeight: '800' }">—</td>
           </tr>
+          <!-- 6. Heures travaillées -->
           <tr style="background: #fefce8;">
             <td :style="{ ...cellStyle, textAlign: 'left' }">6. Nombre d'heures travaillées</td>
             <td v-for="m in monthsList" :key="m" :style="cellStyle">{{ items.mois?.[m]?.nb_heures_travaillees ?? 0 }}</td>
             <td :style="{ ...cellStyle, fontWeight: '800' }">{{ items.totaux?.nb_heures_travaillees ?? 0 }}</td>
           </tr>
+          <!-- 7. Visites médicales -->
           <tr style="background: #fefce8;">
             <td :style="{ ...cellStyle, textAlign: 'left' }">7. Nombre de visites médicales</td>
             <td v-for="m in monthsList" :key="m" :style="cellStyle">{{ items.mois?.[m]?.nb_visites_medicales ?? 0 }}</td>
             <td :style="{ ...cellStyle, fontWeight: '800' }">{{ items.totaux?.nb_visites_medicales ?? 0 }}</td>
           </tr>
+          <!-- 8. Maladies professionnelles -->
           <tr style="background: #fefce8;">
             <td :style="{ ...cellStyle, textAlign: 'left' }">8. Nombre de maladies professionnelles</td>
             <td v-for="m in monthsList" :key="m" :style="cellStyle">{{ items.mois?.[m]?.nb_maladies_professionnelles ?? 0 }}</td>
             <td :style="{ ...cellStyle, fontWeight: '800' }">{{ items.totaux?.nb_maladies_professionnelles ?? 0 }}</td>
           </tr>
+          <!-- TF : Taux de Fréquence -->
           <tr style="border-top: 2px solid #cbd5e1; font-weight: 700; color: #0284c7;">
             <td :style="{ ...cellStyle, textAlign: 'left' }">Taux de Fréquence (TF)</td>
             <td v-for="m in monthsList" :key="m" :style="cellStyle">{{ items.mois?.[m]?.tf ?? 0 }}</td>
             <td :style="{ ...cellStyle, fontWeight: '900' }">{{ items.totaux?.tf_moyen ?? 0 }}</td>
           </tr>
+          <!-- IF : Indice de Fréquence (Cible 2.5) -->
           <tr style="font-weight: 700; color: #9333ea;">
             <td :style="{ ...cellStyle, textAlign: 'left' }">Indice de Fréquence (IF) [Cible 2.5]</td>
             <td v-for="m in monthsList" :key="m" :style="{ ...cellStyle, color: (items.mois?.[m]?.if_val || 0) > 2.5 ? '#dc2626' : '#16a34a' }">
@@ -175,11 +239,13 @@ const thStyle = { padding: '6px 6px', borderBottom: '2px solid #cbd5e1', backgro
               {{ items.totaux?.if_moyen ?? 0 }}
             </td>
           </tr>
+          <!-- TG : Taux de Gravité -->
           <tr style="font-weight: 700; color: #ea580c;">
             <td :style="{ ...cellStyle, textAlign: 'left' }">Taux de Gravité (TG)</td>
             <td v-for="m in monthsList" :key="m" :style="cellStyle">{{ items.mois?.[m]?.tg ?? 0 }}</td>
             <td :style="{ ...cellStyle, fontWeight: '900' }">{{ items.totaux?.tg_moyen ?? 0 }}</td>
           </tr>
+          <!-- IG : Indice de Gravité -->
           <tr style="font-weight: 700; color: #db2777;">
             <td :style="{ ...cellStyle, textAlign: 'left' }">Indice de Gravité (IG)</td>
             <td v-for="m in monthsList" :key="m" :style="cellStyle">{{ items.mois?.[m]?.ig ?? 0 }}</td>
@@ -189,7 +255,9 @@ const thStyle = { padding: '6px 6px', borderBottom: '2px solid #cbd5e1', backgro
       </table>
     </div>
 
-    <!-- CORRECTIVE ACTIONS TABLE -->
+    <!-- ======================================================================= -->
+    <!-- TABLEAU RÉCAPITULATIF DES ACTIONS CORRECTIVES                           -->
+    <!-- ======================================================================= -->
     <div v-if="!isPermis && !isStatAccidents && correctiveActions.length > 0" style="margin-bottom: 15px;">
       <div style="font-size: 10pt; font-weight: 800; color: #b91c1c; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
         ⚠ Tableau Récapitulatif des Actions Correctives ({{ correctiveActions.length }})
@@ -218,17 +286,19 @@ const thStyle = { padding: '6px 6px', borderBottom: '2px solid #cbd5e1', backgro
       </table>
     </div>
 
-    <!-- NO CORRECTIVE ACTIONS -->
+    <!-- Message de conformité totale si aucune action corrective n'est requise -->
     <div v-if="!isPermis && !isStatAccidents && correctiveActions.length === 0" style="background: #ecfdf5; border: 1px solid #a7f3d0; padding: 10px 14px; border-radius: 6px; margin-bottom: 15px; font-size: 9.5pt; color: #065f46;">
       ✓ Aucune non-conformité détectée — Toutes les questions ont été évaluées conformes ou N/A.
     </div>
 
-    <!-- COMMENTS -->
+    <!-- Commentaires généraux des auditeurs -->
     <div v-if="audit.commentaires_generaux" style="background: #f1f5f9; padding: 10px 14px; border-radius: 6px; border-left: 4px solid #003d4d; margin-bottom: 15px; font-size: 9.5pt;">
       <strong>Commentaires des intervenants :</strong><br/>{{ audit.commentaires_generaux }}
     </div>
 
-    <!-- STATUS SUMMARY -->
+    <!-- ======================================================================= -->
+    <!-- SYNTHÈSE DES STATUTS D'ACTIONS (Soldée, En cours, En retard, Non engagée)-->
+    <!-- ======================================================================= -->
     <div v-if="!isPermis && !isStatAccidents" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 20px;">
       <div style="text-align: center; padding: 8px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 6px;">
         <div style="font-size: 1.2rem; font-weight: 800; color: #059669;">{{ audit.count_soldee || 0 }}</div>
@@ -248,16 +318,21 @@ const thStyle = { padding: '6px 6px', borderBottom: '2px solid #cbd5e1', backgro
       </div>
     </div>
 
-    <!-- SIGNATURES -->
+    <!-- ======================================================================= -->
+    <!-- CADRE DE SIGNATURES OFFICIELLES                                         -->
+    <!-- ======================================================================= -->
     <div style="display: flex; justify-content: space-between; margin-top: 30px; padding-top: 15px; border-top: 1px dashed #cbd5e1; font-size: 9pt;">
       <div>Signature Auditeur / Intervenant :<br/><br/><br/>____________________</div>
       <div style="text-align: center;">Date de Validation :<br/><br/><br/>____/____/________</div>
       <div>Signature Responsable HSE :<br/><br/><br/>____________________</div>
     </div>
 
-    <!-- FOOTER -->
+    <!-- ======================================================================= -->
+    <!-- PIED DE PAGE DU RAPPORT IMPRIMÉ                                        -->
+    <!-- ======================================================================= -->
     <div style="margin-top: 20px; text-align: center; font-size: 7.5pt; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 8px;">
       Document généré automatiquement — PlatformActia CIPI ACTIA · Portail Responsable HSE · {{ audit.date_audit }}
     </div>
   </div>
 </template>
+

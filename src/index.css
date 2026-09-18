@@ -1,22 +1,43 @@
+/**
+ * =============================================================================
+ * Système de Design Global : src/index.css
+ * Description : Feuilles de styles principales, variables CSS (tokens), typographie,
+ *               effets de verre (glassmorphism), animations et styles d'impression.
+ * Charte graphique : CIPI ACTIA (Teinte sombre #001217, Primaire émeraude #00c996,
+ *                    Accent vert citron #a8e063, polices Plus Jakarta Sans & JetBrains Mono)
+ * =============================================================================
+ */
+
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@700&display=swap');
 
+/* --- TOKENS DE DESIGN & VARIABLES GLOBALES --- */
 :root {
-  --color-primary: #00c996;
-  --color-primary-dark: #009870;
-  --color-accent-light: #a8e063;
-  --color-bg-dark: #001c24;
-  --color-bg-darker: #001217;
+  /* Palette de couleurs principales */
+  --color-primary: #00c996;        /* Vert émeraude signature ACTIA */
+  --color-primary-dark: #009870;   /* Vert émeraude foncé pour les états actifs */
+  --color-accent-light: #a8e063;   /* Vert citron lumineux pour les contrastes */
+  --color-bg-dark: #001c24;        /* Arrière-plan sombre des panneaux */
+  --color-bg-darker: #001217;      /* Fond sombre d'écran principal */
+  
+  /* Cartes et bordures avec transparence glassmorphic */
   --card-bg: rgba(0, 32, 42, 0.75);
   --card-border: rgba(0, 201, 150, 0.25);
-  --text-main: #e2e8f0;
-  --text-muted: #94a3b8;
-  --text-dim: #64748b;
+  
+  /* Hiérarchie de contrastes typographiques */
+  --text-main: #e2e8f0;            /* Blanc cassé pour le texte principal */
+  --text-muted: #94a3b8;           /* Gris ardoise pour les libellés secondaires */
+  --text-dim: #64748b;             /* Gris foncé pour les métadonnées discrètes */
+  
+  /* Rayons de courbure (Border Radius) standardisés */
   --radius-sm: 8px;
   --radius-md: 14px;
   --radius-lg: 20px;
+  
+  /* Polices de caractères */
   --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 }
+
 
 * {
   box-sizing: border-box;

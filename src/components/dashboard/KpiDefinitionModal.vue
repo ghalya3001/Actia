@@ -1,3 +1,16 @@
+<!--
+  =============================================================================
+  Composant : KpiDefinitionModal.vue
+  Description : Studio interactif de création et personnalisation de KPIs sur-mesure.
+  Fonctionnalités :
+    - Croisement multi-sources des données de sécurité (TF, IF, TG, Accidents, Tournées, Audits, Actions)
+    - Choix flexible du format de rendu graphique (Courbe, Histogramme, Donut, Radar, Scorecard)
+    - Périodicité paramétrable (Mensuelle, Hebdomadaire, Par Secteur/Zone)
+    - Aperçu en direct (Live Preview) réactif synchronisé avec Chart.js
+    - Validation des contraintes de sélection (minimum 1 métrique, maximum 3)
+    - Émission de l'objet KPI configuré pour intégration instantanée au Dashboard
+  =============================================================================
+-->
 <script setup>
 import { ref, computed, watch } from 'vue'
 import {
@@ -17,6 +30,7 @@ import {
   ChevronRight
 } from 'lucide-vue-next'
 
+// Importations modulaires de Chart.js pour optimiser le bundle
 import {
   Chart as ChartJS,
   ArcElement,
@@ -33,6 +47,7 @@ import {
 } from 'chart.js'
 import { Doughnut, Bar, Line, Radar } from 'vue-chartjs'
 
+// Enregistrement des contrôleurs et éléments visuels requis pour tous les types de graphiques supportés
 ChartJS.register(
   ArcElement,
   Tooltip,
@@ -47,18 +62,29 @@ ChartJS.register(
   Filler
 )
 
+// Définition des événements émis vers le composant parent :
+// - close : Fermeture du studio sans enregistrer
+// - saveKpi : Émission de la configuration complète du nouveau KPI créé
+// - showToast : Affichage d'un toast informatif ou d'erreur
 const emit = defineEmits(['close', 'saveKpi', 'showToast'])
 
 // ============================================================================
 // 1. ÉTAT DU FORMULAIRE DE DÉFINITION DE KPI
 // ============================================================================
 
+// Libellé et description saisis par l'utilisateur
 const kpiLabel = ref('Mon KPI Combiné Personnalisé')
 const kpiDescription = ref('Croisement multi-sources des indicateurs de sécurité')
-const selectedChartType = ref('line')
-const selectedPeriodicity = ref('monthly') // 'monthly', 'weekly', 'sector'
 
-// Types de graphiques disponibles
+// Format visuel sélectionné (défaut : courbe temporelle 'line')
+const selectedChartType = ref('line')
+
+// Échelle d'agrégation temporelle ou géographique : 'monthly', 'weekly', 'sector'
+const selectedPeriodicity = ref('monthly')
+
+/**
+ * Catalogue des types de graphiques supportés par le studio avec métadonnées d'affichage
+ */
 const chartTypes = [
   { id: 'line', label: 'Courbe (Évolution)', icon: TrendingUp, desc: 'Tendance temporelle' },
   { id: 'bar', label: 'Barres (Comparatif)', icon: BarChart2, desc: 'Histogramme comparatif' },
@@ -67,7 +93,10 @@ const chartTypes = [
   { id: 'card', label: 'Scorecard (Chiffre)', icon: Award, desc: 'Carte numérique clé' },
 ]
 
-// Catalogue des métriques disponibles (issues de notre conception BDD)
+/**
+ * Catalogue des métriques disponibles issues des tables relationnelles du schéma de données
+ * Chaque métrique possède ses séries de test adaptées aux échelles mensuelle, hebdo et sectorielle
+ */
 const availableMetrics = [
   {
     id: 'tf',
@@ -161,10 +190,14 @@ const availableMetrics = [
   },
 ]
 
-// Séries actuellement sélectionnées (par défaut 2 séries choisies : TF et Objectif)
+// Identifiants des métriques actuellement sélectionnées (par défaut : TF et Objectif)
 const selectedMetricIds = ref(['tf', 'target'])
 
-// Toggle une métrique (permet d'en choisir 1, 2 ou 3)
+/**
+ * Alterne la sélection d'une métrique tout en garantissant les règles métier :
+ * - Minimum 1 métrique active
+ * - Maximum 3 métriques superposées
+ */
 const toggleMetric = (metricId) => {
   const index = selectedMetricIds.value.indexOf(metricId)
   if (index > -1) {
@@ -186,6 +219,9 @@ const toggleMetric = (metricId) => {
 // 2. GÉNÉRATION DYNAMIQUE DE L'APERÇU EN DIRECT (LIVE PREVIEW)
 // ============================================================================
 
+/**
+ * Libellés de l'axe des abscisses (X) adaptés à la périodicité active
+ */
 const labels = computed(() => {
   if (selectedPeriodicity.value === 'monthly') {
     return ['Janv', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept']
@@ -196,11 +232,16 @@ const labels = computed(() => {
   }
 })
 
-// Datasets pour Line / Bar
+/**
+ * Génération dynamique du dataset Chart.js en fonction du type de graphique choisi :
+ * - Radar : axes thématiques d'évaluation
+ * - Donut : ratios de répartition des métriques actives
+ * - Ligne / Barres : séries temporelles ou sectorielles avec support des cibles en pointillés
+ */
 const previewChartData = computed(() => {
   const activeMetrics = availableMetrics.filter((m) => selectedMetricIds.value.includes(m.id))
 
-  // Pour le Radar
+  // Configuration spécifique au graphique Radar
   if (selectedChartType.value === 'radar') {
     return {
       labels: ['EPI', 'ATEX', 'Incendie', 'Ergonomie', '5S', 'Chimie', 'Machines'],
@@ -215,7 +256,7 @@ const previewChartData = computed(() => {
     }
   }
 
-  // Pour le Donut
+  // Configuration spécifique au graphique Donut
   if (selectedChartType.value === 'doughnut') {
     return {
       labels: activeMetrics.map((m) => m.label),
@@ -230,7 +271,7 @@ const previewChartData = computed(() => {
     }
   }
 
-  // Pour Line ou Bar
+  // Configuration pour Courbe (Line) ou Histogramme (Bar)
   return {
     labels: labels.value,
     datasets: activeMetrics.map((m) => {
@@ -248,7 +289,7 @@ const previewChartData = computed(() => {
           selectedChartType.value === 'bar'
             ? `${m.color}b3`
             : `${m.color}20`,
-        borderDash: isTarget ? [5, 5] : undefined,
+        borderDash: isTarget ? [5, 5] : undefined, // Ligne pointillée pour les objectifs
         fill: selectedChartType.value === 'line' && !isTarget,
         tension: 0.35,
         borderRadius: selectedChartType.value === 'bar' ? 6 : undefined,
@@ -260,6 +301,9 @@ const previewChartData = computed(() => {
   }
 })
 
+/**
+ * Options d'affichage Chart.js adaptatives (Légendes, tooltips stylisés sombre, axes personnalisés)
+ */
 const previewChartOptions = computed(() => {
   return {
     responsive: true,
@@ -310,6 +354,9 @@ const previewChartOptions = computed(() => {
 // 3. ENREGISTREMENT DU KPI
 // ============================================================================
 
+/**
+ * Valide les saisies, assemble l'objet de définition du KPI et émet 'saveKpi'
+ */
 const handleSave = () => {
   if (!kpiLabel.value.trim()) {
     emit('showToast', 'Veuillez saisir un nom pour votre KPI.', 'error')
@@ -318,6 +365,7 @@ const handleSave = () => {
 
   const activeMetrics = availableMetrics.filter((m) => selectedMetricIds.value.includes(m.id))
 
+  // Structure complète du widget KPI personnalisé
   const newKpiDef = {
     id: Date.now(),
     title: kpiLabel.value,
@@ -335,7 +383,9 @@ const handleSave = () => {
 }
 </script>
 
+
 <template>
+  <!-- Conteneur overlay avec fermeture au clic arrière-plan (@click.self) -->
   <div class="modal-overlay" @click.self="emit('close')">
     <div
       class="glass-card modal-container page-anim"
@@ -351,7 +401,9 @@ const handleSave = () => {
         border-radius: var(--radius-lg);
       "
     >
-      <!-- HEADER MODAL -->
+      <!-- ======================================================================= -->
+      <!-- EN-TÊTE DU STUDIO : Titre, Badges et Bouton de Fermeture                 -->
+      <!-- ======================================================================= -->
       <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 1rem;">
         <div>
           <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
@@ -371,6 +423,7 @@ const handleSave = () => {
           </p>
         </div>
 
+        <!-- Bouton croix pour fermer la modale -->
         <button
           @click="emit('close')"
           style="
@@ -391,7 +444,9 @@ const handleSave = () => {
         </button>
       </div>
 
-      <!-- CORPS DU STUDIO (GRID 2 COLONNES : CONFIGURATION À GAUCHE, LIVE PREVIEW À DROITE) -->
+      <!-- ======================================================================= -->
+      <!-- CORPS DU STUDIO (GRID 2 COLONNES : CONFIGURATION GAUCHE / PREVIEW DROITE)-->
+      <!-- ======================================================================= -->
       <div style="display: grid; grid-template-columns: 1.1fr 1fr; gap: 1.5rem;" class="studio-grid">
         
         <!-- ================================================================= -->
@@ -399,7 +454,7 @@ const handleSave = () => {
         <!-- ================================================================= -->
         <div style="display: flex; flex-direction: column; gap: 1.25rem;">
           
-          <!-- ÉTAPE 1 : NOM DU KPI -->
+          <!-- ÉTAPE 1 : NOM ET DESCRIPTIF DU KPI -->
           <div class="config-block">
             <label style="font-size: 0.78rem; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 6px;">
               1. Titre & Descriptif du KPI
@@ -413,7 +468,7 @@ const handleSave = () => {
             />
           </div>
 
-          <!-- ÉTAPE 2 : CHOIX DU TYPE DE GRAPHIQUE -->
+          <!-- ÉTAPE 2 : CHOIX DU TYPE DE GRAPHIQUE (Line, Bar, Doughnut, Radar, Card) -->
           <div class="config-block">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
               <label style="font-size: 0.78rem; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">
@@ -424,6 +479,7 @@ const handleSave = () => {
               </span>
             </div>
 
+            <!-- Grille des formats graphiques disponibles -->
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px;">
               <div
                 v-for="c in chartTypes"
@@ -446,21 +502,23 @@ const handleSave = () => {
                   gap: 8px;
                 "
               >
+                <!-- Icône dynamique Lucide -->
                 <component :is="c.icon" :size="16" :color="selectedChartType === c.id ? 'var(--color-primary)' : '#94a3b8'" />
                 <div>
                   <div style="font-size: 0.78rem; font-weight: 700; color: #fff;">{{ c.label.split(' ')[0] }}</div>
-                  <div style="font-size: 0.65rem; color: var(--text-dim);">{{ c.desc }}</div>
+                  <div style="font-size: 0.65rem; color: var(--text-dim strain);">{{ c.desc }}</div>
                 </div>
               </div>
             </div>
           </div>
 
-          <!-- ÉTAPE 3 : CHOIX DES 2 OU 3 TYPES DE DONNÉES -->
+          <!-- ÉTAPE 3 : CHOIX DES 2 OU 3 TYPES DE DONNÉES À CROISER -->
           <div class="config-block">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
               <label style="font-size: 0.78rem; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">
                 3. Sélection des Données à Croiser
               </label>
+              <!-- Compteur de métriques sélectionnées avec avertissement couleur -->
               <span
                 :style="{
                   color: selectedMetricIds.length >= 2 ? 'var(--color-primary)' : '#f59e0b',
@@ -475,7 +533,7 @@ const handleSave = () => {
               Cochez <strong>2 ou 3 types de données</strong> pour les superposer sur le même graphique.
             </p>
 
-            <!-- LISTE DES MÉTRIQUES AVEC BADGES CLIQUABLES -->
+            <!-- LISTE DÉROULANTE DES MÉTRIQUES AVEC CASES À COCHER PERSONNALISÉES -->
             <div style="display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; padding-right: 4px;">
               <div
                 v-for="m in availableMetrics"
@@ -497,6 +555,7 @@ const handleSave = () => {
                   transition: all 0.15s ease;
                 "
               >
+                <!-- Libellé de la métrique et table source -->
                 <div style="display: flex; align-items: center; gap: 8px;">
                   <span
                     :style="{
@@ -522,6 +581,7 @@ const handleSave = () => {
                   </div>
                 </div>
 
+                <!-- Unité de mesure -->
                 <span :style="{ color: m.color }" style="font-size: 0.74rem; font-weight: 800; font-family: var(--font-mono);">
                   {{ m.unit }}
                 </span>
@@ -529,12 +589,13 @@ const handleSave = () => {
             </div>
           </div>
 
-          <!-- ÉTAPE 4 : AXE TEMPOREL / REGROUPEMENT -->
+          <!-- ÉTAPE 4 : AXE TEMPOREL / REGROUPEMENT GÉOGRAPHIQUE -->
           <div class="config-block">
             <label style="font-size: 0.78rem; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 6px;">
               4. Axe d'Agrégation
             </label>
             <div style="display: flex; gap: 8px;">
+              <!-- Option Mensuelle -->
               <button
                 type="button"
                 @click="selectedPeriodicity = 'monthly'"
@@ -546,6 +607,7 @@ const handleSave = () => {
               >
                 Mensuel (Janv-Sept)
               </button>
+              <!-- Option Hebdomadaire -->
               <button
                 type="button"
                 @click="selectedPeriodicity = 'weekly'"
@@ -557,6 +619,7 @@ const handleSave = () => {
               >
                 Hebdomadaire (Semaines)
               </button>
+              <!-- Option Sectorielle -->
               <button
                 type="button"
                 @click="selectedPeriodicity = 'sector'"
@@ -588,6 +651,7 @@ const handleSave = () => {
           "
         >
           <div>
+            <!-- En-tête de la zone d'aperçu -->
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
               <span style="font-size: 0.72rem; font-weight: 800; color: var(--color-primary); text-transform: uppercase; letter-spacing: 0.5px;">
                 Aperçu en Temps Réel
@@ -597,6 +661,7 @@ const handleSave = () => {
               </span>
             </div>
 
+            <!-- Titre et sous-titre de l'aperçu -->
             <h4 style="font-size: 1rem; font-weight: 800; color: #fff; margin-bottom: 2px;">
               {{ kpiLabel || 'Sans titre' }}
             </h4>
@@ -604,9 +669,9 @@ const handleSave = () => {
               Croisement de {{ selectedMetricIds.length }} série(s) de données · Format {{ chartTypes.find(c => c.id === selectedChartType)?.label }}
             </p>
 
-            <!-- ZONE DU CHART PREVIEW -->
+            <!-- ZONE DU GRAPH REPRÉSENTÉ SELON LE TYPE CHOISI -->
             <div style="height: 300px; position: relative;">
-              <!-- Scorecard simple si Card choisie -->
+              <!-- Cas Scorecard simple -->
               <div
                 v-if="selectedChartType === 'card'"
                 style="
@@ -633,28 +698,28 @@ const handleSave = () => {
                 </div>
               </div>
 
-              <!-- Line Chart -->
+              <!-- Cas Courbe temporelle (Line) -->
               <Line
                 v-else-if="selectedChartType === 'line'"
                 :data="previewChartData"
                 :options="previewChartOptions"
               />
 
-              <!-- Bar Chart -->
+              <!-- Cas Histogramme comparatif (Bar) -->
               <Bar
                 v-else-if="selectedChartType === 'bar'"
                 :data="previewChartData"
                 :options="previewChartOptions"
               />
 
-              <!-- Doughnut Chart -->
+              <!-- Cas Répartition en anneau (Doughnut) -->
               <Doughnut
                 v-else-if="selectedChartType === 'doughnut'"
                 :data="previewChartData"
                 :options="previewChartOptions"
               />
 
-              <!-- Radar Chart -->
+              <!-- Cas Évaluation multi-axes (Radar) -->
               <Radar
                 v-else-if="selectedChartType === 'radar'"
                 :data="previewChartData"
@@ -678,8 +743,9 @@ const handleSave = () => {
             </div>
           </div>
 
-          <!-- FOOTER ACTIONS DE LA MODAL -->
+          <!-- BOUTONS D'ACTION DU PIED DE MODALE -->
           <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 1.25rem;">
+            <!-- Bouton Annuler -->
             <button
               type="button"
               @click="emit('close')"
@@ -697,6 +763,7 @@ const handleSave = () => {
               Annuler
             </button>
 
+            <!-- Bouton Ajouter le KPI au Dashboard -->
             <button
               type="button"
               @click="handleSave"
@@ -729,6 +796,7 @@ const handleSave = () => {
 </template>
 
 <style scoped>
+/* Conteneur flouté en fond d'écran */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -741,6 +809,7 @@ const handleSave = () => {
   padding: 1rem;
 }
 
+/* Bloc unifié pour chaque étape de configuration */
 .config-block {
   background: rgba(0, 24, 32, 0.6);
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -748,9 +817,11 @@ const handleSave = () => {
   padding: 12px 14px;
 }
 
+/* Adaptation responsive mobile et tablette */
 @media (max-width: 768px) {
   .studio-grid {
     grid-template-columns: 1fr !important;
   }
 }
 </style>
+

@@ -1,9 +1,30 @@
+<!--
+===============================================================================
+PAGE D'ACCUEIL & FONDAMENTAUX DE LA CULTURE HSE (HOME.VUE)
+===============================================================================
+Rôle :
+  Portail d'accueil et d'acculturation pour les managers et équipes HSE :
+  1. Bandeau Hero : Message fort sur la culture de sécurité et de vigilance partagée.
+  2. Carrousel d'inspirations HSE : Citations d'experts mondiaux (Reason, Kletz, etc.)
+     avec défilement automatique toutes les 10 secondes ou au clic manuel.
+  3. Cartes d'action rapide : Liens directs vers la saisie d'un formulaire, l'historique ou le dashboard.
+  4. Les 3 Piliers HSE : Hygiène industrielle, Sécurité opérationnelle, Protection de l'environnement.
+  5. Les 10 Règles d'Or : Règles incontournables sur site industriel (LOTO, EPI, permis de travail).
+  6. Méthodologies & Certifications : Pyramide de Bird, boucle PDCA (Plan-Do-Check-Act) et normes ISO.
+===============================================================================
+-->
+
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue';
-import { ShieldCheck, RotateCw, Lightbulb, Flame, Award, GraduationCap, FileEdit, Clock, LineChart, Star, CheckCircle, ArrowRight } from 'lucide-vue-next';
+import {
+  ShieldCheck, RotateCw, Lightbulb, Flame, Award, GraduationCap,
+  FileEdit, Clock, LineChart, Star, CheckCircle, ArrowRight
+} from 'lucide-vue-next';
 
+// Événement pour déclencher la navigation vers une autre vue dans App.vue
 const emit = defineEmits(['navigate']);
 
+// Citations inspirantes sur la santé, la sécurité au travail et le facteur humain
 const hseQuotes = [
   { text: "“La sécurité ne se mesure pas à l'absence d’accidents, mais à la présence de défenses.”", author: "— Prof. James Reason (Modèle du fromage suisse)" },
   { text: "“Penser que la sécurité coûte cher, c'est oublier ce que coûte un accident.”", author: "— Sir Trevor Kletz" },
@@ -12,6 +33,7 @@ const hseQuotes = [
   { text: "“Chaque presqu'accident évité aujourd'hui est une vie préservée demain.”", author: "— Règle d'Or ISO 45001" }
 ];
 
+// Les 10 règles d'or de sécurité strictes du site
 const rules = [
   { num: 1, text: 'Travailler toujours avec les <strong style="color: #fff">autorisations de travail</strong> valides.' },
   { num: 2, text: 'Appliquer la <strong style="color: #fff">consignation LOTO</strong> avant toute maintenance.' },
@@ -25,21 +47,27 @@ const rules = [
   { num: 10, text: 'Trier et trier correctement les <strong style="color: #fff">déchets dangereux</strong>.' }
 ];
 
+// Raccourcis d'accès rapide vers les modules clés
 const actionCards = [
   { id: 'formulaire', title: 'Nouveau Formulaire', subtitle: 'Audit, Tournée & Permis', icon: FileEdit, bg: 'rgba(0,201,150,0.15)', color: 'var(--color-primary)' },
   { id: 'historique', title: 'Historique Audits', subtitle: 'Consulter les fiches', icon: Clock, bg: 'rgba(168,224,99,0.15)', color: 'var(--color-accent-light)' },
   { id: 'dashboard', title: 'Dashboard HSE', subtitle: 'Graphiques & KPIs', icon: LineChart, bg: 'rgba(59,130,246,0.15)', color: '#60a5fa' }
 ];
 
+// Présentation des 3 piliers fondateurs
 const pillars = [
   { emoji: '🧼', title: '1. Hygiène', color: 'var(--color-primary)', text: 'Prévenir les maladies professionnelles et assurer la santé physique et mentale au poste de travail.' },
   { emoji: '⛑️', title: '2. Sécurité', color: 'var(--color-accent-light)', text: 'Éliminer les dangers à la source, sécuriser les machines et instaurer l\'objectif « Zéro Accident ».' },
   { emoji: '🌿', title: '3. Environnement', color: '#34d399', text: 'Réduire l\'empreinte écologique, maîtriser les rejets et favoriser le développement durable.' }
 ];
 
+// Index de la citation affichée et transition douce d'opacité (fade)
 const quoteIndex = ref(0);
 const fade = ref(true);
 
+/**
+ * Passe à la citation suivante avec un effet de fondu transparent.
+ */
 const nextQuote = () => {
   fade.value = false;
   setTimeout(() => {
@@ -48,14 +76,17 @@ const nextQuote = () => {
   }, 200);
 };
 
+// Minuteur pour le carrousel automatique de citations
 let timer;
 
+// Enregistrement du cycle automatique au montage du composant (toutes les 10s)
 onMounted(() => {
   timer = setInterval(() => {
     nextQuote();
   }, 10000);
 });
 
+// Nettoyage impératif de l'intervalle lors de la destruction du composant
 onUnmounted(() => {
   clearInterval(timer);
 });
@@ -63,7 +94,10 @@ onUnmounted(() => {
 
 <template>
   <div class="page-anim">
-    <!-- HEADER -->
+    
+    <!-- ===================================================================== -->
+    <!-- EN-TÊTE DE LA PAGE D'ACCUEIL                                          -->
+    <!-- ===================================================================== -->
     <div style="margin-bottom: 1.75rem">
       <h1 style="font-size: 1.8rem; font-weight: 800; color: #fff; letter-spacing: -0.5px">
         Bienvenue sur <span style="color: var(--color-primary); text-shadow: 0 0 20px rgba(0,201,150,0.4)">PlatformActia HSE</span>
@@ -73,7 +107,9 @@ onUnmounted(() => {
       </p>
     </div>
 
-    <!-- HERO BANNER -->
+    <!-- ===================================================================== -->
+    <!-- BANNIÈRE HERO ANIMÉE                                                  -->
+    <!-- ===================================================================== -->
     <div class="animated-hero" style="margin-bottom: 1.75rem">
       <div class="hero-icon-wrapper">🛡️</div>
       <div style="position: relative; z-index: 2">
@@ -86,10 +122,12 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- ROTATING QUOTE & ENGAGEMENT GRID -->
+    <!-- ===================================================================== -->
+    <!-- CARROUSEL DE CITATIONS & COMPTEUR D'ENGAGEMENT                        -->
+    <!-- ===================================================================== -->
     <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.25rem; margin-bottom: 1.75rem">
       
-      <!-- QUOTE ROTATOR BOX -->
+      <!-- Boîte de citation tournante -->
       <div class="quote-box">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem">
           <span style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--color-primary); display: flex; align-items: center; gap: 6px">
@@ -107,7 +145,7 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- ENGAGEMENT COUNTER CARD -->
+      <!-- Badge de conformité et engagement -->
       <div class="pillar-card" style="display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; background: linear-gradient(135deg, rgba(0,35,45,0.7), rgba(0,61,77,0.4))">
         <div style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--color-primary); margin-bottom: 6px; display: flex; align-items: center; gap: 6px">
           <Flame :size="16" color="#f59e0b" /> Engagement HSE
@@ -121,7 +159,9 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- QUICK ACTION CARDS -->
+    <!-- ===================================================================== -->
+    <!-- CARTES D'ACCÈS RAPIDES AUX MODULES                                    -->
+    <!-- ===================================================================== -->
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.25rem; margin-bottom: 2rem">
       <div v-for="card in actionCards" :key="card.id" class="glass-card" style="display: flex; align-items: center; gap: 1.25rem; cursor: pointer; transition: transform 0.2s ease, border-color 0.2s ease" @click="emit('navigate', card.id)">
         <div :style="{ width: '50px', height: '50px', borderRadius: '12px', background: card.bg, color: card.color, display: 'flex', alignItems: 'center', justifyContent: 'center' }">
@@ -135,7 +175,9 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- 3 PILLARS OF HSE -->
+    <!-- ===================================================================== -->
+    <!-- LES 3 PILIERS DE LA DÉMARCHE HSE                                      -->
+    <!-- ===================================================================== -->
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; margin-bottom: 2rem">
       <div v-for="(pillar, idx) in pillars" :key="idx" class="pillar-card">
         <div style="font-size: 2.2rem; margin-bottom: 0.75rem">{{ pillar.emoji }}</div>
@@ -146,10 +188,12 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- 10 RULES OF GOLD & METHODOLOGY PANELS -->
+    <!-- ===================================================================== -->
+    <!-- 10 RÈGLES D'OR & PANNEAUX DE MÉTHODOLOGIES                            -->
+    <!-- ===================================================================== -->
     <div style="display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 1.5rem; margin-bottom: 2rem">
       
-      <!-- 10 RÈGLES D'OR DE SÉCURITÉ -->
+      <!-- Colonne Gauche : Les 10 Règles d'Or de Sécurité -->
       <div class="panel">
         <div class="panel-header">
           <span class="panel-title" style="display: flex; align-items: center; gap: 8px">
@@ -167,9 +211,10 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- METHODOLOGIES & CERTIFICATIONS -->
+      <!-- Colonne Droite : Méthodologies Fondamentales et Certifications ISO -->
       <div style="display: flex; flex-direction: column; gap: 1.5rem">
         
+        <!-- Panneau Méthodologies (Pyramide de Bird, Roue de Deming PDCA) -->
         <div class="panel">
           <div class="panel-header">
             <span class="panel-title" style="display: flex; align-items: center; gap: 8px">
@@ -194,6 +239,7 @@ onUnmounted(() => {
           </div>
         </div>
 
+        <!-- Panneau Certifications Qualité & HSE (ISO 45001, ISO 14001) -->
         <div class="panel">
           <div class="panel-header">
             <span class="panel-title" style="display: flex; align-items: center; gap: 8px">

@@ -2,12 +2,32 @@
 ===============================================================================
 SERVICE DE GESTION DES SOUMISSIONS HSE (SUBMISSION_SERVICE.PY)
 ===============================================================================
-Ce service fait la passerelle entre le contrat d'API / frontend (qui envoie
-un objet complet avec items_data) et les tables relationnelles normalisées
-selon le diagramme de classes Mermaid :
-  - Décomposition à l'écriture (INSERT / UPDATE)
-  - Reconstitution transparente à la lecture (GET)
-  - Gestion des photos associées
+Rôle :
+  Fait la passerelle complète entre le contrat d'API / frontend Vue 3 (qui échange
+  un objet JSON consolidé avec le dictionnaire `items_data`) et les tables
+  relationnelles PostgreSQL normalisées (modèle Joined Table Inheritance) :
+  
+  1. Écriture (CREATE / UPDATE) :
+     - Décomposition fine de la soumission dans la table mère (`form_submissions`)
+       et la table fille spécialisée (`audit_hse_submissions`, `tournee_hse_submissions`,
+       `permis_travail_submissions`, `accident_travail_submissions`).
+     - Éclatement des points de contrôle dans les tables d'items relationnels
+       (`audit_hse_items`, `tournee_hse_items`, `accident_travail_monthly_items`).
+     - Enregistrement des photographies de preuves dans `photo_storage`.
+  
+  2. Lecture (GET by ID / GET ALL) :
+     - Reconstitution transparente et performante de l'objet complet `HSEAuditOut`
+       avec le dictionnaire `items_data` attendu par le frontend Vue 3.
+  
+  3. Cycle de vie et Nettoyage (DELETE) :
+     - Suppression en cascade automatique de la soumission, de ses lignes d'évaluation
+       et de ses enregistrements de photos.
+
+Équipe de maintenance :
+  - La normalisation des états d'action (`ETAT_NORMALIZE`) gère les variations
+    avec ou sans accents ("non engagée" vs "non_engagee") pour éviter tout rejet.
+  - La règle métier stricte sur les accidents de travail :
+    `nb_accidents_total = nb_accidents_avec_arret + nb_accidents_sans_arret`.
 ===============================================================================
 """
 
@@ -30,8 +50,10 @@ from app.models.submission import (
 from app.schemas.audit import HSEAuditCreate, HSEAuditUpdate
 
 
-
-# Mapping pour convertir les états d'action entre le frontend et la base
+# =============================================================================
+# 1. DICTIONNAIRES DE MAPPAGE DES STATUTS D'ACTIONS CORRECTIVES
+# =============================================================================
+# Normalise les statuts reçus depuis le frontend vers les valeurs normalisées BDD
 ETAT_NORMALIZE = {
     "non engagée": "non_engagee",
     "non engagee": "non_engagee",
@@ -41,6 +63,7 @@ ETAT_NORMALIZE = {
     "en retard": "en_retard",
 }
 
+# Convertit les codes BDD en libellés soignés avec accents pour l'affichage frontend
 ETAT_DISPLAY = {
     "non_engagee": "Non engagée",
     "en_cours": "En cours",
@@ -49,10 +72,21 @@ ETAT_DISPLAY = {
 }
 
 
+# =============================================================================
+# 2. SERVICE PRINCIPAL : SUBMISSIONSERVICE
+# =============================================================================
 class SubmissionService:
+    """
+    Service centralisant les opérations CRUD et la transformation relationnelle
+    des formulaires de sécurité et santé au travail (HSE).
+    """
 
     @staticmethod
     def _normalize_etat(etat_str: Optional[str]) -> str:
+        """
+        Convertit un libellé d'état d'action en valeur standardisée pour la BDD.
+        Ex: 'Non engagée' -> 'non_engagee'.
+        """
         if not etat_str:
             return "non_engagee"
         lower = etat_str.strip().lower()
@@ -60,6 +94,10 @@ class SubmissionService:
 
     @staticmethod
     def _display_etat(etat_db: Optional[str]) -> str:
+        """
+        Convertit un code d'état BDD en libellé élégant pour le frontend.
+        Ex: 'non_engagee' -> 'Non engagée'.
+        """
         if not etat_db:
             return "Non engagée"
         return ETAT_DISPLAY.get(etat_db, etat_db)
@@ -68,9 +106,18 @@ class SubmissionService:
     def create_submission(cls, db: Session, audit_in: HSEAuditCreate, user_id: int) -> Dict[str, Any]:
         """
         Crée une nouvelle soumission et la ventile dans les tables relationnelles appropriées.
+
+        Args:
+            db (Session): Session de base de données active.
+            audit_in (HSEAuditCreate): DTO validé contenant les données du formulaire.
+            user_id (int): Identifiant du manager connecté.
+
+        Returns:
+            Dict[str, Any]: Dictionnaire complet reconstitué au format HSEAuditOut.
         """
         form_type = audit_in.form_type
-        # Normalisation du type de formulaire
+
+        # Détermination du type de formulaire cible normalisé
         if form_type in ("audit_hse", "audit_hse_complet"):
             target_type = "audit_hse"
         elif form_type == "tournee_hse":
@@ -82,8 +129,9 @@ class SubmissionService:
         else:
             target_type = "audit_hse"
 
-        # 1. Instanciation de la classe enfant spécifique (Joined Table Inheritance)
+        # --- CAS 1 : FORMULAIRE D'AUDIT HSE COMPLET (FGSI-001) ---
         if target_type == "audit_hse":
+            # Création de l'entité fille héritée de FormSubmission
             submission = AuditHSESubmission(
                 user_id=user_id,
                 form_type=target_type,
@@ -102,11 +150,12 @@ class SubmissionService:
                 count_en_retard=audit_in.count_en_retard,
             )
             db.add(submission)
-            db.flush()  # Pour obtenir submission.id
+            db.flush()  # Flush immédiat pour générer l'identifiant auto-incrémenté 'submission.id'
 
-            # 2. Décomposition des items relationnels
+            # Éclatement des 51 questions dans la table relationnelle audit_hse_items
             cls._save_audit_items(db, submission.id, audit_in.items_data)
 
+        # --- CAS 2 : FORMULAIRE DE TOURNÉE HSE (FGSI-010) ---
         elif target_type == "tournee_hse":
             submission = TourneeHSESubmission(
                 user_id=user_id,
@@ -128,8 +177,10 @@ class SubmissionService:
             db.add(submission)
             db.flush()
 
+            # Enregistrement des points de contrôle dans tournee_hse_items
             cls._save_tournee_items(db, submission.id, audit_in.items_data)
 
+        # --- CAS 3 : PERMIS DE TRAVAIL (FGSI-PERMIS) ---
         elif target_type == "permis_travail":
             items_d = audit_in.items_data or {}
             submission = PermisTravailSubmission(
@@ -149,8 +200,10 @@ class SubmissionService:
             db.add(submission)
             db.flush()
 
+        # --- CAS 4 : SUIVI DES ACCIDENTS DE TRAVAIL ET STATISTIQUES HSE ---
         elif target_type == "statistiques_accidents":
             items_d = audit_in.items_data or {}
+            # Extraction de l'année civile de référence
             annee_val = int(items_d.get("annee") or (audit_in.date_audit.split("-")[0] if "-" in audit_in.date_audit else 2026))
             submission = AccidentTravailSubmission(
                 user_id=user_id,
@@ -170,17 +223,21 @@ class SubmissionService:
             db.add(submission)
             db.flush()
 
+            # Enregistrement des 12 mois de statistiques
             cls._save_accident_travail_items(db, submission, items_d)
 
+        # Validation de l'ensemble de la transaction
         db.commit()
         db.refresh(submission)
+
+        # Reconstitution au format DTO complet
         return cls.submission_to_dict(submission)
 
     @classmethod
     def _save_accident_travail_items(cls, db: Session, submission: AccidentTravailSubmission, items_data: Dict[str, Any]):
         """
-        Enregistre les 12 mois de statistiques accidents et met à jour les totaux/indicateurs parents.
-        Garantit la règle : nb_accidents_total = nb_accidents_avec_arret + nb_accidents_sans_arret
+        Enregistre les 12 mois de statistiques accidents et calcule les totaux et indicateurs annuels.
+        Règle métier stricte : nb_accidents_total = nb_accidents_avec_arret + nb_accidents_sans_arret.
         """
         months_dict = items_data.get("months", items_data)
         if not isinstance(months_dict, dict):
@@ -192,6 +249,7 @@ class SubmissionService:
         ]
         annee_short = str(submission.annee)[-2:]
 
+        # Cumulateurs pour consolidation annuelle
         tot_avec = 0
         tot_sans = 0
         tot_heures = 0.0
@@ -200,6 +258,7 @@ class SubmissionService:
         tot_visites = 0
         tot_maladies = 0
 
+        # Itération sur les 12 mois de l'année
         for m_idx in range(1, 13):
             m_key = str(m_idx)
             m_data = months_dict.get(m_key, {})
@@ -208,7 +267,7 @@ class SubmissionService:
 
             avec_arret = int(m_data.get("nb_accidents_avec_arret") or 0)
             sans_arret = int(m_data.get("nb_accidents_sans_arret") or 0)
-            # RÈGLE UTILISATEUR STRICTE : somme entre avec arrêt et sans arrêt
+            # Application de la règle métier de calcul de somme
             total_acc = avec_arret + sans_arret
             heures = float(m_data.get("nb_heures_travaillees") or 0.0)
             jours = int(m_data.get("nb_jours_perdus") or 0)
@@ -217,12 +276,13 @@ class SubmissionService:
             maladies = int(m_data.get("nb_maladies_pro") or 0)
             incap_perm = float(m_data.get("incapacite_permanente") or m_data.get("somme_taux_incapacite_perm") or 0.0)
 
-            # Calculs d'indicateurs par mois
+            # Formules réglementaires des indicateurs mensuels
             tf = round((avec_arret / heures) * 1_000_000, 2) if heures > 0 else 0.0
             inf = round((avec_arret / salaries) * 1_000, 2) if salaries > 0 else 0.0
             tg = round((jours * 1_000) / heures, 4) if heures > 0 else 0.0
             ig = round((incap_perm * 1_000) / heures, 4) if heures > 0 else 0.0
 
+            # Création de la ligne mensuelle
             item = AccidentTravailMonthlyItem(
                 submission_id=submission.id,
                 mois_index=m_idx,
@@ -243,6 +303,7 @@ class SubmissionService:
             )
             db.add(item)
 
+            # Mise à jour des cumuls annuels
             tot_avec += avec_arret
             tot_sans += sans_arret
             tot_heures += heures
@@ -252,6 +313,7 @@ class SubmissionService:
             if salaries > 0:
                 tot_salaries = salaries
 
+        # Affectation des totaux annuels consolidés à la soumission parente
         submission.total_accidents_avec_arret = tot_avec
         submission.total_accidents_sans_arret = tot_sans
         submission.total_accidents = tot_avec + tot_sans
@@ -261,6 +323,7 @@ class SubmissionService:
         submission.total_visites_medicales = tot_visites
         submission.total_maladies_pro = tot_maladies
 
+        # Calcul des indicateurs de synthèse annuels
         if tot_heures > 0:
             submission.taux_frequence = round((tot_avec / tot_heures) * 1_000_000, 2)
             submission.taux_gravite = round((tot_jours * 1_000) / tot_heures, 4)
@@ -269,7 +332,10 @@ class SubmissionService:
 
     @classmethod
     def _save_audit_items(cls, db: Session, audit_id: int, items_data: Dict[str, Any]):
-        """Enregistre les items de l'audit HSE dans audit_hse_items"""
+        """
+        Enregistre les questions détaillées de l'audit HSE dans la table `audit_hse_items`
+        et référence les photographies dans `photo_storage`.
+        """
         if not items_data or not isinstance(items_data, dict):
             return
 
@@ -282,6 +348,7 @@ class SubmissionService:
             if not isinstance(val_data, dict):
                 val_data = {"val": val_data}
 
+            # Normalisation de la conformité : 1 = Conforme, 0 = Non conforme, -1 = NA
             raw_val = val_data.get("val")
             if raw_val == "NA":
                 conf = -1
@@ -293,6 +360,7 @@ class SubmissionService:
             photo = val_data.get("photo")
             etat = cls._normalize_etat(val_data.get("etat"))
 
+            # Création de la ligne relationnelle
             item = AuditHSEItem(
                 audit_id=audit_id,
                 question_id=q_id,
@@ -308,7 +376,7 @@ class SubmissionService:
             db.add(item)
             db.flush()
 
-            # Si une photo est fournie, l'enregistrer également dans photo_storage
+            # Archivage de la preuve photo dans le registre centralisé si présente
             if photo:
                 photo_entry = PhotoStorage(
                     item_id=item.id,
@@ -320,7 +388,9 @@ class SubmissionService:
 
     @classmethod
     def _save_tournee_items(cls, db: Session, tournee_id: int, items_data: Dict[str, Any]):
-        """Enregistre les items de la Tournée HSE dans tournee_hse_items"""
+        """
+        Enregistre les points de contrôle de la Tournée HSE dans la table `tournee_hse_items`.
+        """
         if not items_data or not isinstance(items_data, dict):
             return
 
@@ -370,7 +440,20 @@ class SubmissionService:
 
     @classmethod
     def get_submission_by_id(cls, db: Session, audit_id: int, user_id: int) -> Dict[str, Any]:
-        """Récupère une soumission et reconstitue le dictionnaire items_data."""
+        """
+        Recherche une soumission par son identifiant et reconstitue son dictionnaire `items_data`.
+
+        Args:
+            db (Session): Session BDD.
+            audit_id (int): Identifiant unique de l'audit.
+            user_id (int): Identifiant de l'utilisateur propriétaire.
+
+        Raises:
+            HTTPException: Si l'audit est introuvable (erreur 404).
+
+        Returns:
+            Dict[str, Any]: Données complètes de la soumission.
+        """
         sub = db.query(FormSubmission).filter(
             FormSubmission.id == audit_id,
             FormSubmission.user_id == user_id
@@ -394,20 +477,31 @@ class SubmissionService:
         form_type: Optional[str] = None,
         secteur: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """Récupère toutes les soumissions de l'utilisateur avec filtres."""
+        """
+        Récupère l'ensemble des soumissions de l'utilisateur avec application
+        de critères de filtrage optionnels (dates, type de formulaire, secteur).
+
+        Returns:
+            List[Dict[str, Any]]: Liste des soumissions prêtes pour le frontend.
+        """
+        # Requête de base sur la table mère polymorphique
         query = db.query(FormSubmission).filter(FormSubmission.user_id == user_id)
 
+        # Filtre par date exacte
         if date_audit:
             query = query.filter(FormSubmission.date_audit == date_audit)
+        # Filtres de plage temporelle (du ... au ...)
         if date_from:
             query = query.filter(FormSubmission.date_audit >= date_from)
         if date_to:
             query = query.filter(FormSubmission.date_audit <= date_to)
+        # Filtre par catégorie de formulaire
         if form_type:
             if form_type in ("audit_hse", "audit_hse_complet"):
                 query = query.filter(FormSubmission.form_type.in_(["audit_hse", "audit_hse_complet"]))
             else:
                 query = query.filter(FormSubmission.form_type == form_type)
+        # Recherche textuelle insensible à la casse sur le secteur ou les intervenants
         if secteur:
             query = query.filter(
                 or_(
@@ -416,6 +510,7 @@ class SubmissionService:
                 )
             )
 
+        # Tri antéchronologique (les plus récents en premier)
         submissions = query.order_by(FormSubmission.created_at.desc()).all()
         return [cls.submission_to_dict(s) for s in submissions]
 
@@ -423,7 +518,9 @@ class SubmissionService:
     def update_submission(
         cls, db: Session, audit_id: int, audit_in: HSEAuditUpdate, user_id: int
     ) -> Dict[str, Any]:
-        """Met à jour une soumission existante et synchronise ses items."""
+        """
+        Met à jour une soumission existante et synchronise en cascade ses points de contrôle.
+        """
         sub = db.query(FormSubmission).filter(
             FormSubmission.id == audit_id,
             FormSubmission.user_id == user_id
@@ -435,22 +532,22 @@ class SubmissionService:
                 detail=f"Audit introuvable avec l'ID {audit_id}."
             )
 
-        # Mise à jour des champs communs
+        # Mise à jour des attributs communs déclarés dans form_submissions
         update_data = audit_in.model_dump(exclude_unset=True)
         for field in ("reference", "secteur", "intervenants", "date_audit", "commentaires_generaux", "taux_conformite"):
             if field in update_data and update_data[field] is not None:
                 setattr(sub, field, update_data[field])
 
-        # Mise à jour des compteurs sur l'enfant
+        # Mise à jour des compteurs statistiques sur les formulaires d'évaluation
         if isinstance(sub, (AuditHSESubmission, TourneeHSESubmission)):
             for field in ("total_conforme", "total_non_conforme", "total_na", "count_soldee", "count_non_engagee", "count_en_cours", "count_en_retard"):
                 if field in update_data and update_data[field] is not None:
                     setattr(sub, field, update_data[field])
 
-        # Synchronisation des items si fournis
+        # Synchronisation et recréation propre des items si le payload 'items_data' est fourni
         if "items_data" in update_data and update_data["items_data"] is not None:
             if isinstance(sub, AuditHSESubmission):
-                # Supprimer les anciens items et recréer
+                # Suppression des anciens items avant réinsertion
                 db.query(AuditHSEItem).filter(AuditHSEItem.audit_id == sub.id).delete()
                 cls._save_audit_items(db, sub.id, update_data["items_data"])
             elif isinstance(sub, TourneeHSESubmission):
@@ -487,7 +584,11 @@ class SubmissionService:
 
     @classmethod
     def delete_submission(cls, db: Session, audit_id: int, user_id: int) -> bool:
-        """Supprime une soumission (les tables filles et items sont supprimés en cascade)."""
+        """
+        Supprime définitivement une soumission.
+        Grâce aux contraintes ON DELETE CASCADE, les tables filles et items
+        sont automatiquement nettoyés par PostgreSQL.
+        """
         sub = db.query(FormSubmission).filter(
             FormSubmission.id == audit_id,
             FormSubmission.user_id == user_id
@@ -506,9 +607,10 @@ class SubmissionService:
     @classmethod
     def submission_to_dict(cls, sub: FormSubmission) -> Dict[str, Any]:
         """
-        Reconstitue l'objet retourné exactement au format HSEAuditOut attendu
-        par le frontend Vue (avec le dictionnaire items_data complet).
+        Reconstitue l'objet retourné exactement au format `HSEAuditOut` attendu
+        par le frontend Vue 3, avec l'arborescence complète du dictionnaire `items_data`.
         """
+        # Base commune de toutes les soumissions
         data: Dict[str, Any] = {
             "id": sub.id,
             "reference": sub.reference,
@@ -522,7 +624,7 @@ class SubmissionService:
             "created_at": sub.created_at,
         }
 
-        # Données spécifiques selon le type
+        # --- Reconstitution spécifique pour l'Audit HSE ---
         if isinstance(sub, AuditHSESubmission):
             data["total_conforme"] = sub.total_conforme
             data["total_non_conforme"] = sub.total_non_conforme
@@ -532,7 +634,6 @@ class SubmissionService:
             data["count_en_cours"] = sub.count_en_cours
             data["count_en_retard"] = sub.count_en_retard
 
-            # Reconstitution de items_data
             items_dict = {}
             for it in (sub.items or []):
                 val = 1 if it.conformite == 1 else (0 if it.conformite == 0 else "NA")
@@ -548,6 +649,7 @@ class SubmissionService:
                 }
             data["items_data"] = items_dict
 
+        # --- Reconstitution spécifique pour la Tournée HSE ---
         elif isinstance(sub, TourneeHSESubmission):
             data["total_conforme"] = sub.total_conforme
             data["total_non_conforme"] = sub.total_non_conforme
@@ -572,6 +674,7 @@ class SubmissionService:
                 }
             data["items_data"] = items_dict
 
+        # --- Reconstitution pour le Permis de Travail ---
         elif isinstance(sub, PermisTravailSubmission):
             data["total_conforme"] = 0
             data["total_non_conforme"] = 0
@@ -588,6 +691,7 @@ class SubmissionService:
                 "remarques": sub.remarques_specifiques or "",
             }
 
+        # --- Reconstitution pour le Bilan des Accidents de Travail ---
         elif isinstance(sub, AccidentTravailSubmission):
             data["total_conforme"] = 0
             data["total_non_conforme"] = 0

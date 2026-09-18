@@ -1,10 +1,20 @@
 """
 ===============================================================================
-SERVICE DE CALCUL DES KPIS ET SNAPSHOTS DASHBOARD (KPI_SERVICE.PY)
+SERVICE DE CALCUL DES KPIS ET SNAPSHOTS DU DASHBOARD (KPI_SERVICE.PY)
 ===============================================================================
-Ce service implémente la méthode choisie : recalcul automatique après chaque
-POST / PUT / DELETE de formulaire, stockage dans la table `kpi_snapshots`,
-et alimentation instantanée du Dashboard.
+Rôle :
+  Implémente le moteur décisionnel et analytique pour le tableau de bord HSE :
+  - Initialisation au démarrage du catalogue d'indicateurs configurables (`kpi_definitions`).
+  - Recalcul complet et asynchrone des indicateurs (`recalculate_kpis_for_user`)
+    déclenché après chaque ajout, modification ou suppression de formulaire.
+  - Mise en cache des résultats sous forme de snapshots (`kpi_snapshots`)
+    afin de garantir un temps de réponse instantané (< 10 ms) pour le frontend.
+  - Distribution par secteur, statuts des actions correctives et cumul des permis.
+
+Équipe de maintenance :
+  - La méthode `recalculate_kpis_for_user()` ouvre sa propre session BDD indépendante
+    (`SessionLocal()`), ce qui la rend parfaitement compatible avec l'exécution en arrière-plan
+    FastAPI (`BackgroundTasks`) sans risque de concurrence de threads.
 ===============================================================================
 """
 
@@ -26,7 +36,11 @@ from app.schemas.audit import HSEAuditStats
 
 logger = logging.getLogger(__name__)
 
-# Définitions standard des KPIs insérées au démarrage
+# =============================================================================
+# 1. CATALOGUE PAR DÉFAUT DES INDICATEURS SYSTÈME HSE
+# =============================================================================
+# Ces définitions sont injectées automatiquement dans 'kpi_definitions'
+# si la table est vide lors du premier lancement de l'application.
 DEFAULT_KPI_DEFINITIONS = [
     {
         "name": "total_audits",
@@ -95,14 +109,29 @@ DEFAULT_KPI_DEFINITIONS = [
 ]
 
 
+# =============================================================================
+# 2. SERVICE PRINCIPAL : KPISERVICE
+# =============================================================================
 class KPIService:
+    """
+    Classe de service fournissant les opérations de calcul et de restitution
+    des indicateurs de performance clés (KPIs) pour le tableau de bord.
+    """
 
     @staticmethod
     def ensure_default_kpi_definitions(db: Session):
-        """Initialise le catalogue kpi_definitions s'il est vide."""
+        """
+        Vérifie l'existence des indicateurs dans la table `kpi_definitions`.
+        Si la table est vide, peuple automatiquement les indicateurs par défaut.
+
+        Args:
+            db (Session): Session de base de données active.
+        """
         try:
+            # Comptage des définitions déjà enregistrées
             count = db.query(KPIDefinition).count()
             if count == 0:
+                # Insertion séquentielle des indicateurs par défaut
                 for d in DEFAULT_KPI_DEFINITIONS:
                     kpi = KPIDefinition(**d)
                     db.add(kpi)
@@ -115,14 +144,20 @@ class KPIService:
     @classmethod
     def recalculate_kpis_for_user(cls, user_id: int):
         """
-        Recalcule tous les KPIs impactés pour l'utilisateur en tâche de fond (BackgroundTasks).
-        Ouvre sa propre session de base de données pour une exécution asynchrone sûre.
+        Recalcule tous les KPIs pour un utilisateur donné et stocke les résultats
+        dans la table cache `kpi_snapshots`.
+        Conçu pour être exécuté en tâche de fond (BackgroundTasks).
+
+        Args:
+            user_id (int): Identifiant du manager dont les statistiques sont recalculées.
         """
+        # Ouverture d'une session indépendante et dédiée à cette exécution asynchrone
         db: Session = SessionLocal()
         try:
+            # Vérification de sécurité du catalogue de base
             cls.ensure_default_kpi_definitions(db)
 
-            # 1. Calculs sur form_submissions
+            # --- Étape 1 : Calcul des moyennes globales sur form_submissions ---
             submissions = db.query(FormSubmission).filter(FormSubmission.user_id == user_id).all()
             total_subs = len(submissions)
 
@@ -131,28 +166,31 @@ class KPIService:
             else:
                 avg_conf = 0.0
 
-            # 2. Calculs des actions (Audit + Tournée)
+            # --- Étape 2 : Agrégation des actions correctives (Audits + Tournées) ---
             audits = db.query(AuditHSESubmission).filter(AuditHSESubmission.user_id == user_id).all()
             tournees = db.query(TourneeHSESubmission).filter(TourneeHSESubmission.user_id == user_id).all()
 
+            # Cumul des actions par statut
             soldee = sum(a.count_soldee for a in audits) + sum(t.count_soldee for t in tournees)
             non_engagee = sum(a.count_non_engagee for a in audits) + sum(t.count_non_engagee for t in tournees)
             en_cours = sum(a.count_en_cours for a in audits) + sum(t.count_en_cours for t in tournees)
             en_retard = sum(a.count_en_retard for a in audits) + sum(t.count_en_retard for t in tournees)
 
-            # 3. Calculs des permis
+            # --- Étape 3 : Cumul des autorisations et permis de travail ---
             permis = db.query(PermisTravailSubmission).filter(PermisTravailSubmission.user_id == user_id).all()
             total_permis = sum(p.nb_plan_prevention + p.nb_permis_hauteur + p.nb_permis_feu for p in permis)
 
-            # 4. Calcul de la conformité par secteur
+            # --- Étape 4 : Répartition et moyenne de conformité par atelier / secteur ---
             secteur_map: Dict[str, List[float]] = {}
             for s in submissions:
                 sec = s.secteur or "Autre"
                 secteur_map.setdefault(sec, []).append(s.taux_conformite)
 
+            # Calcul de la moyenne arrondie par secteur
             secteur_avg = {sec: round(sum(scores) / len(scores), 1) for sec, scores in secteur_map.items()}
 
-            # 5. Préparation des valeurs à enregistrer dans kpi_snapshots
+            # --- Étape 5 : Préparation de la structure des snapshots à insérer / mettre à jour ---
+            # Format : { nom_technique_kpi: (valeur_scalaire, json_detaille_optionnel) }
             kpi_values = {
                 "total_audits": (float(total_subs), None),
                 "avg_conformite": (round(avg_conf, 1), None),
@@ -173,22 +211,25 @@ class KPIService:
 
             now = datetime.now(timezone.utc)
 
-            # 6. UPSERT dans kpi_snapshots
+            # --- Étape 6 : UPSERT (Insertion ou Mise à jour) dans kpi_snapshots ---
             for kpi_name, (val, breakdown) in kpi_values.items():
                 kpi_def = db.query(KPIDefinition).filter(KPIDefinition.name == kpi_name).first()
                 if not kpi_def:
                     continue
 
+                # Recherche d'un snapshot existant pour ce KPI et cet utilisateur
                 snapshot = db.query(KPISnapshot).filter(
                     KPISnapshot.kpi_id == kpi_def.id,
                     KPISnapshot.user_id == user_id
                 ).first()
 
                 if snapshot:
+                    # Mise à jour des valeurs du cache
                     snapshot.value = val
                     snapshot.breakdown_data = breakdown
                     snapshot.computed_at = now
                 else:
+                    # Création d'une nouvelle entrée en cache
                     snapshot = KPISnapshot(
                         kpi_id=kpi_def.id,
                         user_id=user_id,
@@ -198,6 +239,7 @@ class KPIService:
                     )
                     db.add(snapshot)
 
+            # Validation définitive de la transaction
             db.commit()
             logger.info(f"[KPI Service] Recalcul terminé avec succès pour user_id={user_id}")
 
@@ -205,15 +247,24 @@ class KPIService:
             db.rollback()
             logger.error(f"[KPI Service] Erreur lors du recalcul des KPIs pour user_id={user_id}: {e}")
         finally:
+            # Clôture impérative de la session pour libérer la connexion du pool
             db.close()
 
     @classmethod
     def get_user_stats(cls, db: Session, user_id: int) -> HSEAuditStats:
         """
-        Retourne instantanément les statistiques sous forme HSEAuditStats.
-        Lit en priorité kpi_snapshots. Si absent, déclenche un calcul immédiat.
+        Retourne instantanément les statistiques sous forme d'objet `HSEAuditStats`.
+        Lit en priorité le cache `kpi_snapshots`. Si les snapshots sont absents,
+        calcule à la volée et déclenche la création du cache pour les prochains appels.
+
+        Args:
+            db (Session): Session de base de données active.
+            user_id (int): Identifiant de l'utilisateur.
+
+        Returns:
+            HSEAuditStats: DTO contenant le résumé statistique consolidé.
         """
-        # Récupération depuis kpi_snapshots
+        # --- Stratégie 1 : Lecture haute performance depuis le cache kpi_snapshots ---
         snapshots = db.query(KPISnapshot, KPIDefinition.name).join(
             KPIDefinition, KPISnapshot.kpi_id == KPIDefinition.id
         ).filter(KPISnapshot.user_id == user_id).all()
@@ -221,7 +272,7 @@ class KPIService:
         snap_dict = {name: snap.value for snap, name in snapshots}
 
         if "total_audits" in snap_dict and "avg_conformite" in snap_dict:
-            # Distribution des actions
+            # Extraction des données détaillées pour la répartition des actions
             dist_snap = next((snap for snap, name in snapshots if name == "actions_distribution"), None)
             dist_json = dist_snap.breakdown_data if (dist_snap and dist_snap.breakdown_data) else {}
 
@@ -234,7 +285,7 @@ class KPIService:
                 total_actions_en_retard=int(dist_json.get("en_retard", snap_dict.get("actions_en_retard", 0))),
             )
 
-        # Calcul direct si pas encore de snapshots
+        # --- Stratégie 2 : Calcul direct de secours si aucun snapshot n'est encore initialisé ---
         submissions = db.query(FormSubmission).filter(FormSubmission.user_id == user_id).all()
         total_audits = len(submissions)
         if total_audits == 0:
@@ -256,7 +307,7 @@ class KPIService:
         en_cours = sum(a.count_en_cours for a in audits) + sum(t.count_en_cours for t in tournees)
         en_retard = sum(a.count_en_retard for a in audits) + sum(t.count_en_retard for t in tournees)
 
-        # Déclenchement asynchrone du snapshot pour la prochaine fois
+        # Déclenchement silencieux du recalcul asynchrone pour alimenter le cache au prochain appel
         try:
             cls.recalculate_kpis_for_user(user_id)
         except Exception:

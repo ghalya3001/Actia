@@ -1,28 +1,56 @@
+"""
+===============================================================================
+SERVICE D'EXPÉDITION D'E-MAILS NOTIFICATIONS ET OTP (EMAIL.PY)
+===============================================================================
+Rôle :
+  Gère l'envoi des courriels transactionnels de la plateforme, notamment :
+  - L'envoi du code OTP à 6 chiffres pour la réinitialisation de mot de passe.
+  - La mise en page HTML responsive avec charte graphique PlatformActia (vert/noir).
+  - Un mode dégradé automatique (Simulation console) si les identifiants SMTP Gmail
+    ne sont pas renseignés dans le fichier `.env`.
+
+Équipe de maintenance :
+  - Pour Gmail : utilisez un "Mot de passe d'application" (16 caractères) généré
+    depuis le compte Google (rubrique Sécurité > Validation en deux étapes).
+  - En environnement de test/CI, le mode simulation dans la console s'active sans erreur.
+===============================================================================
+"""
+
 import smtplib
 import logging
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from app.core.config import settings
 
+# Initialisation du logger pour tracer les envois et erreurs d'e-mails
 logger = logging.getLogger(__name__)
+
 
 def send_otp_email(email_to: str, otp_code: str) -> bool:
     """
-    Sends a 6-digit OTP verification code via Gmail SMTP if credentials are configured in .env.
-    If SMTP credentials are not set, prints the simulated email in the server console.
+    Expédie un e-mail HTML contenant le code OTP de vérification à l'utilisateur destinataire.
+
+    Args:
+        email_to (str): Adresse de messagerie de l'utilisateur demandeur.
+        otp_code (str): Code de vérification à 6 chiffres (ex: '729143').
+
+    Returns:
+        bool: True si l'e-mail a été envoyé avec succès ou simulé en console,
+              False si une erreur de transmission SMTP survient.
     """
     smtp_user = settings.SMTP_USER
     smtp_password = settings.SMTP_PASSWORD
     from_email = settings.EMAILS_FROM_EMAIL or smtp_user or "noreply@platformactia.com"
 
-    # Console simulation log
+    # --- Mode 1 : Journalisation / Simulation en Console (Utile pour le dev local) ---
     print(f"\n[EMAIL SIMULATION] Verification OTP code sent to {email_to}: {otp_code}\n")
 
-    # If Gmail SMTP credentials are set in .env, send real email!
+    # --- Mode 2 : Envoi Réel via le Serveur SMTP Gmail ---
     if smtp_user and smtp_password:
         try:
             subject = "PlatformActia - Code de vérification à 6 chiffres"
             
+            # Gabarit HTML stylisé avec la charte graphique officielle PlatformActia
             html_content = f"""
             <!DOCTYPE html>
             <html>
@@ -52,26 +80,31 @@ def send_otp_email(email_to: str, otp_code: str) -> bool:
             </html>
             """
 
+            # Construction de l'objet MIME multipart pour la compatibilité des clients mail
             msg = MIMEMultipart("alternative")
             msg["Subject"] = subject
             msg["From"] = f"{settings.EMAILS_FROM_NAME} <{from_email}>"
             msg["To"] = email_to
 
+            # Attachement de la partie HTML
             part = MIMEText(html_content, "html")
             msg.attach(part)
 
+            # Connexion sécurisée au serveur SMTP avec chiffrement TLS
             with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
-                server.starttls()
-                server.login(smtp_user, smtp_password)
-                server.sendmail(from_email, [email_to], msg.as_string())
+                server.starttls()  # Négociation du tunnel TLS chiffré
+                server.login(smtp_user, smtp_password)  # Authentification auprès de Google
+                server.sendmail(from_email, [email_to], msg.as_string())  # Expédition
 
             logger.info(f"Real Gmail SMTP Email sent to {email_to}")
             print(f"[REAL SMTP GMAIL] Email successfully sent to {email_to} via Gmail SMTP!")
             return True
         except Exception as e:
+            # En cas d'erreur de connexion ou de mot de passe SMTP invalide
             logger.error(f"Failed to send SMTP email: {e}")
             print(f"[SMTP ERROR] Could not send email via Gmail SMTP: {e}")
             return False
     else:
+        # Si aucun identifiant SMTP n'est renseigné dans .env
         logger.info("SMTP credentials not configured in .env - email printed in console simulation.")
         return True

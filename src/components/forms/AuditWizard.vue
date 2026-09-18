@@ -1,13 +1,43 @@
+<!--
+===============================================================================
+ASSISTANT DE SAISIE MULTI-FORMULAIRES HSE (AUDITWIZARD.VUE)
+===============================================================================
+Rôle :
+  Composant central de saisie terrain guidée en 5 étapes pour les 4 types de formulaires :
+  1. Fiche d'Audit HSE Complet (FGSI-001-Ind:F, 51 questions sur 7 sections).
+  2. Fiche de Tournée HSE de Sécurité (FGSI-010-Ind:A, 42 questions sur 8 sections).
+  3. Fiche de Permis de Travail (FGSI-PERMIS, autorisations de travaux à risques).
+  4. Suivi Mensuel des Accidents de Travail & Santé (FGSI-STAT-ACCIDENTS, grille 12 mois et TF/IF/TG).
+
+Fonctionnalités avancées :
+  - Calcul dynamique en temps réel du Taux de Conformité (%) et des indicateurs (TF, IF, TG, IG).
+  - Génération automatique des fiches d'actions correctives dès qu'un point est noté "Non conforme".
+  - Téléversement et prévisualisation directe de photos de constats terrain (conversion base64 DataURL).
+  - Double mode : Création (POST) et Modification d'un audit existant (PUT).
+===============================================================================
+-->
+
 <script setup>
 import { ref, reactive, watch, computed } from 'vue';
-import { ArrowLeft, ChevronRight, ChevronLeft, Upload, CheckCircle, AlertTriangle, FileText, Shield, Flame, HardHat, Camera, X, Activity, TrendingUp, BarChart3 } from 'lucide-vue-next';
+import {
+  ArrowLeft, ChevronRight, ChevronLeft, Upload, CheckCircle,
+  AlertTriangle, FileText, Shield, Flame, HardHat, Camera, X,
+  Activity, TrendingUp, BarChart3
+} from 'lucide-vue-next';
 
-
+// --- Props et Événements ---
+// formType     : type de formulaire ('audit_hse', 'tournee_hse', 'permis_travail', 'statistiques_accidents')
+// editingAudit : données de la fiche à modifier (null si création)
 const props = defineProps(['formType', 'editingAudit']);
+
+// Événements émis vers App.vue
 const emit = defineEmits(['close', 'submitSuccess', 'showToast']);
 
+// =============================================================================
+// 1. RÉFÉRENTIEL OFFICIEL DES 51 QUESTIONS D'AUDIT HSE (FGSI-001-IND:F)
+// =============================================================================
 const AUDIT_QUESTIONS_DATA = [
-  // SECTION 1
+  // SECTION 1 : Équipements de Protection Individuelle (EPI)
   { id: 1, sec: 1, text: "Les EPI sont ils à disposition des travailleurs dans la zone de travail ?" },
   { id: 2, sec: 1, text: "Le port des EPI (gant, lunette, masque respiratoire) est respecté ?" },
   { id: 3, sec: 1, text: "Les EPI ne sont pas endommagés ?" },
@@ -15,13 +45,13 @@ const AUDIT_QUESTIONS_DATA = [
   { id: 5, sec: 1, text: "La fréquence du changement des EPI est-elle respectée ?" },
   { id: 6, sec: 1, text: "Contrôle de l'état de conditionnement des EPIs" },
   { id: 7, sec: 1, text: "Présence d'une armoire de stockage des EPIs (masque à cartouche, gants, lunette et etc)" },
-  // SECTION 2
+  // SECTION 2 : Connaissances Opérateurs & Fiches de Données de Sécurité (FDSS)
   { id: 8, sec: 2, text: "L'opérateur sur poste est-il sensibilisé sur les risques dans la zone de travail ?" },
   { id: 9, sec: 2, text: "L'opérateur sur poste connaît-il les instructions et les pictogrammes de santé, sécurité et environnement (FDSS) dans la zone de travail ?" },
   { id: 10, sec: 2, text: "Les FDSS sont elles mises à disposition et affichées dans chaque poste de travail ?" },
   { id: 11, sec: 2, text: "L'opérateur sur poste connaît l'emploi correct de leurs équipements de protection individuelle ?" },
   { id: 12, sec: 2, text: "L'opérateur sur poste sait intervenir lors d'un accident (Exemple : Déversement d'un produit chimique...)" },
-  // SECTION 3
+  // SECTION 3 : Démarche 5S, Propreté & Gestion des Déchets
   { id: 13, sec: 3, text: "Standard 5 S est il respecté ?" },
   { id: 14, sec: 3, text: "L'aspiration et l'extraction à la source est-elle fonctionnelle ?" },
   { id: 15, sec: 3, text: "Les bacs de rétention sont présents et propres ?" },
@@ -36,12 +66,12 @@ const AUDIT_QUESTIONS_DATA = [
   { id: 24, sec: 3, text: "les toilettes sont nettoyées et la fréquence de nettoyage est respectée" },
   { id: 25, sec: 3, text: "les réfectoires sont nettoyés et la fréquence de nettoyage est respectée" },
   { id: 26, sec: 3, text: "les zones fumeurs sont bien respectées" },
-  // SECTION 4
+  // SECTION 4 : Sécurité des Machines & Équipements de Travail
   { id: 27, sec: 4, text: "Les Équipements de travail sont conformes (présence des béchers , pinceau...) ?" },
   { id: 28, sec: 4, text: "Toutes les machines sont équipées de leurs caches de sécurité ?" },
   { id: 29, sec: 4, text: "Les modes opératoires sont-ils affichés et mis à disposition des travailleurs ?" },
   { id: 30, sec: 4, text: "Le planning et la maintenance préventive des machines sont ils respectés ?" },
-  // SECTION 5
+  // SECTION 5 : Protection Incendie & Évacuation
   { id: 31, sec: 5, text: "Les extincteurs sont identifiés ?" },
   { id: 32, sec: 5, text: "Les extincteurs sont vérifiés ?" },
   { id: 33, sec: 5, text: "Les extincteurs sont accessibles (Hauteur, Dans un emplacement dégagé...)" },
@@ -52,11 +82,11 @@ const AUDIT_QUESTIONS_DATA = [
   { id: 38, sec: 5, text: "l'alarme de l'issue de secours est fonctionnelle ?" },
   { id: 39, sec: 5, text: "le BAES est en bonne état de fonctionnement !" },
   { id: 40, sec: 5, text: "Les panneaux d'évacuation sont visibles et disponible selon le plan d'évacuation ?" },
-  // SECTION 6
+  // SECTION 6 : Pharmacie & Premiers Secours
   { id: 41, sec: 6, text: "La boîte pharmacie est disponible et équipée ?" },
   { id: 42, sec: 6, text: "La liste des secouristes est affichée et à jour" },
   { id: 43, sec: 6, text: "La Liste des Guides file-Serres file est affiché et à jour" },
-  // SECTION 7
+  // SECTION 7 : Ergonomie & Conditions de Travail
   { id: 44, sec: 7, text: "Les postes de travail sont adaptés à la morphologie des opérateurs (hauteur de table, siège, plans de travail réglables) ?" },
   { id: 45, sec: 7, text: "Les mouvements répétitifs sont identifiés et évalués (répétitivité) ?" },
   { id: 46, sec: 7, text: "Les manutentions manuelles sont évaluées (poids, fréquence, posture) ?" },
@@ -67,6 +97,9 @@ const AUDIT_QUESTIONS_DATA = [
   { id: 51, sec: 7, text: "Les opérateurs bénéficient d'une formation aux gestes et postures ?" }
 ];
 
+// =============================================================================
+// 2. RÉFÉRENTIEL OFFICIEL DES 42 QUESTIONS DE TOURNÉE HSE (FGSI-010-IND:A)
+// =============================================================================
 const TOURNEE_HSE_QUESTIONS_DATA = [
   // SECTION 1: Sécurité Générale
   { id: 101, sec: 1, text: "Port des EPI conforme (casque, chaussures, lunettes, gants, etc.)" },
@@ -81,13 +114,13 @@ const TOURNEE_HSE_QUESTIONS_DATA = [
   { id: 109, sec: 2, text: "Étiquetage CLP conforme" },
   { id: 110, sec: 2, text: "Manipulation avec EPI adaptés" },
   { id: 111, sec: 2, text: "Plan d'urgence ou douche/lave-œil disponible" },
-  // SECTION 3: Zone ATEX
+  // SECTION 3: Zone ATEX (Atmosphères Explosives)
   { id: 112, sec: 3, text: "Matériel certifié ATEX" },
   { id: 113, sec: 3, text: "Mise à la terre des équipements" },
   { id: 114, sec: 3, text: "Absence d'étincelles / sources d'ignition" },
   { id: 115, sec: 3, text: "Signalisation zone ATEX visible" },
   { id: 116, sec: 3, text: "Procédures spécifiques connues par le personnel" },
-  // SECTION 4: Maintenance
+  // SECTION 4: Maintenance & Consignation (LOTO)
   { id: 117, sec: 4, text: "Verrouillage physique des sources d'énergie" },
   { id: 118, sec: 4, text: "Étiquettes de consignation en place" },
   { id: 119, sec: 4, text: "Formation et habilitation du personnel" },
@@ -100,7 +133,7 @@ const TOURNEE_HSE_QUESTIONS_DATA = [
   { id: 125, sec: 5, text: "Surpresseur réseau RIA sous tension" },
   { id: 126, sec: 5, text: "Surpresseur réseau RIA en mode automatique" },
   { id: 127, sec: 5, text: "Niveau d'eau dans la bâche à eau" },
-  // SECTION 6: Évacuation
+  // SECTION 6: Évacuation & Dégagements
   { id: 128, sec: 6, text: "Les Issues de secours accessibles" },
   { id: 129, sec: 6, text: "Les issues de secours sont équipées par les manettes anti-panique" },
   { id: 130, sec: 6, text: "Les sirènes des issues de secours sont fonctionnelles" },
@@ -112,7 +145,7 @@ const TOURNEE_HSE_QUESTIONS_DATA = [
   { id: 135, sec: 7, text: "Formation gestes et postures effectuée" },
   { id: 136, sec: 7, text: "L'écran informatique est positionné à hauteur des yeux, à distance adéquate ?" },
   { id: 137, sec: 7, text: "Les outils et matériels sont rangés à portée de main pour éviter les contraintes posturales ?" },
-  // SECTION 8: Gestion des Déchets
+  // SECTION 8: Gestion des Déchets Industriels
   { id: 138, sec: 8, text: "Tri conforme (DIB, Carton, Plastique, dangereux, etc.)" },
   { id: 139, sec: 8, text: "Conteneurs de collectes des déchets sont adaptés et étiquetés" },
   { id: 140, sec: 8, text: "Stockage temporaire sécurisé" },
@@ -120,29 +153,41 @@ const TOURNEE_HSE_QUESTIONS_DATA = [
   { id: 142, sec: 8, text: "Absence de débordement / fuite" }
 ];
 
+// =============================================================================
+// 3. ÉTATS RÉACTIFS DE L'ASSISTANT PAS-À-PAS
+// =============================================================================
+// Étape courante du Stepper (1: Infos, 2..4: Questions/Formulaires, 5: Synthèse)
 const currentStep = ref(1);
+
+// Champs généraux communs
 const dateAudit = ref(new Date().toISOString().split('T')[0]);
 const secteur = ref('');
 const intervenants = ref('');
 const commentairesGeneraux = ref('');
 
-// Permis de Travail numeric state
+// Champs spécifiques au formulaire de Permis de Travail
 const planPrevention = ref(0);
 const permisHauteur = ref(0);
 const permisFeu = ref(0);
 const permisRemarques = ref('');
 
-// Statistiques Accidents state
+// Champs spécifiques aux Statistiques Mensuelles d'Accidents
 const selectedAnnee = ref(2026);
 const targetIF = ref(2.5);
 const targetTF = ref(0.0);
 const targetTG = ref(0.0);
 const targetIG = ref(0.0);
 
+// Constantes pour les 12 mois
 const MONTHS_KEYS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 const MONTHS_LABELS = ['janv.-26', 'févr.-26', 'mars-26', 'avr.-26', 'mai-26', 'juin-26', 'juil.-26', 'août-26', 'sept.-26', 'oct.-26', 'nov.-26', 'déc.-26'];
 
+// Objet réactif stockant les valeurs des 12 mois pour le suivi SST
 const accidentData = reactive({});
+
+/**
+ * Initialise les compteurs de statistiques accidents pour les 12 mois à zéro.
+ */
 const initAccidentData = () => {
   MONTHS_KEYS.forEach(m => {
     accidentData[m] = {
@@ -159,23 +204,33 @@ const initAccidentData = () => {
 };
 initAccidentData();
 
-// Checklist items answers state
+// Dictionnaire réactif contenant les réponses d'audit/tournée { [question_id]: { val, constat, photo, action, resp, delai, etat, comm } }
 const answers = reactive({});
 
+// Propriétés calculées pour identifier la fiche en cours
 const isPermis = computed(() => props.formType === 'permis_travail');
 const isTournee = computed(() => props.formType === 'tournee_hse');
 const isStatAccidents = computed(() => props.formType === 'statistiques_accidents' || props.formType === 'accident_travail');
 
+// Sélection du catalogue de questions approprié
 const questionsData = computed(() => isTournee.value ? TOURNEE_HSE_QUESTIONS_DATA : AUDIT_QUESTIONS_DATA);
 
-// RÈGLE MÉTIER FORMULAIRE UTILISATEUR :
-// La première ligne qui contient nombre d'accident de travail doit afficher la somme entre sans arrêt et avec arrêt
+// =============================================================================
+// 4. FORMULES ET RÈGLES DE CALCUL DES INDICATEURS HSE
+// =============================================================================
+/**
+ * RÈGLE MÉTIER FORMULAIRE UTILISATEUR :
+ * Le total des accidents d'un mois est la somme automatique des accidents avec arrêt et sans arrêt.
+ */
 const getAccidentTotal = (m) => {
   const avec = Number(accidentData[m]?.nb_accidents_avec_arret) || 0;
   const sans = Number(accidentData[m]?.nb_accidents_sans_arret) || 0;
   return avec + sans;
 };
 
+/**
+ * Calcule le cumul annuel pour un champ spécifique sur l'ensemble des 12 mois.
+ */
 const getTotalAnnuel = (field) => {
   if (field === 'total_accidents') {
     return MONTHS_KEYS.reduce((acc, m) => acc + getAccidentTotal(m), 0);
@@ -183,6 +238,9 @@ const getTotalAnnuel = (field) => {
   return MONTHS_KEYS.reduce((acc, m) => acc + (Number(accidentData[m]?.[field]) || 0), 0);
 };
 
+/**
+ * Récupère le dernier effectif de travailleurs saisi non nul dans l'année.
+ */
 const getDernierEffectif = () => {
   for (let i = MONTHS_KEYS.length - 1; i >= 0; i--) {
     const sal = Number(accidentData[MONTHS_KEYS[i]]?.nb_travailleurs) || 0;
@@ -191,33 +249,49 @@ const getDernierEffectif = () => {
   return 0;
 };
 
+/**
+ * Formule Taux de Fréquence (TF) : (Accidents avec arrêt / Heures travaillées) * 1 000 000
+ */
 const getTF = (m) => {
   const avec = Number(accidentData[m]?.nb_accidents_avec_arret) || 0;
   const h = Number(accidentData[m]?.nb_heures_travaillees) || 0;
   return h > 0 ? Math.round((avec / h) * 1000000) : 0;
 };
 
+/**
+ * Formule Indice de Fréquence (IF) : (Accidents avec arrêt / Nombre de salariés) * 1 000
+ */
 const getIF = (m) => {
   const avec = Number(accidentData[m]?.nb_accidents_avec_arret) || 0;
   const sal = Number(accidentData[m]?.nb_travailleurs) || 0;
   return sal > 0 ? ((avec / sal) * 1000).toFixed(2) : '0.00';
 };
 
+/**
+ * Formule Taux de Gravité (TG) : (Jours perdus * 1 000) / Heures travaillées
+ */
 const getTG = (m) => {
   const jp = Number(accidentData[m]?.nb_jours_perdus) || 0;
   const h = Number(accidentData[m]?.nb_heures_travaillees) || 0;
   return h > 0 ? ((jp * 1000) / h).toFixed(4) : '0.0000';
 };
 
+/**
+ * Formule Indice de Gravité (IG) : (Taux d'incapacité permanente * 1 000) / Heures travaillées
+ */
 const getIG = (m) => {
   const inc = Number(accidentData[m]?.incapacite_permanente) || 0;
   const h = Number(accidentData[m]?.nb_heures_travaillees) || 0;
   return h > 0 ? ((inc * 1000) / h).toFixed(4) : '0.0000';
 };
 
+// =============================================================================
+// 5. SYNCHRONISATION DES DONNÉES (WATCHER INITIALISATION & ÉDITION)
+// =============================================================================
 watch(
   () => [props.editingAudit, props.formType],
   () => {
+    // Cas 1 : Mode modification d'une fiche existante
     if (props.editingAudit) {
       dateAudit.value = props.editingAudit.date_audit || new Date().toISOString().split('T')[0];
       secteur.value = props.editingAudit.secteur || '';
@@ -256,11 +330,13 @@ watch(
         Object.assign(answers, props.editingAudit.items_data || {});
       }
     } else {
+      // Cas 2 : Mode création d'une nouvelle fiche vierge
       if (isStatAccidents.value) {
         initAccidentData();
       } else if (!isPermis.value) {
         Object.keys(answers).forEach(k => delete answers[k]);
         questionsData.value.forEach(q => {
+          // Par défaut, chaque question est pré-remplie à Conforme (val: 1)
           answers[q.id] = { val: 1, constat: '', photo: '', action: '', resp: '', delai: '', etat: 'Non engagée', comm: '' };
         });
       }
@@ -269,6 +345,9 @@ watch(
   { immediate: true }
 );
 
+/**
+ * Met à jour un attribut particulier d'une réponse de question (constat, action, photo...).
+ */
 const updateAnswer = (qId, field, val) => {
   if (!answers[qId]) {
     answers[qId] = { val: 1, constat: '', photo: '', action: '', resp: '', delai: '', etat: 'Non engagée', comm: '' };
@@ -276,6 +355,9 @@ const updateAnswer = (qId, field, val) => {
   answers[qId][field] = val;
 };
 
+/**
+ * Traite le fichier photo sélectionné par l'utilisateur et l'encode en base64 DataURL.
+ */
 const handlePhotoUpload = (qId, file) => {
   if (!file) return;
   const reader = new FileReader();
@@ -286,6 +368,9 @@ const handlePhotoUpload = (qId, file) => {
   reader.readAsDataURL(file);
 };
 
+/**
+ * Calcule le taux global de conformité (%) et les compteurs (conformes, non conformes, N/A).
+ */
 const calculateScore = () => {
   if (isPermis.value || isStatAccidents.value) return { score: '100.0', confCount: 0, nconfCount: 0, naCount: 0 };
   let confCount = 0, nconfCount = 0, naCount = 0;
@@ -302,7 +387,11 @@ const calculateScore = () => {
   return { score, confCount, nconfCount, naCount };
 };
 
+// =============================================================================
+// 6. SOUMISSION FINALE VERS L'API BACKEND
+// =============================================================================
 const handleSubmit = async () => {
+  // Contrôle de présence des métadonnées obligatoires
   if (!secteur.value || !intervenants.value || !dateAudit.value) {
     emit('showToast', "Veuillez renseigner la Date, le Secteur et les Intervenants / Responsables à l'Étape 1.", 'error');
     currentStep.value = 1;
@@ -312,11 +401,13 @@ const handleSubmit = async () => {
   const API_AUDITS = window.location.origin + "/api/v1/audits";
   const token = localStorage.getItem("access_token");
 
+  // Détermination de la référence qualité appropriée
   let reference = isStatAccidents.value ? 'FGSI-STAT-ACCIDENTS' : (isPermis.value ? 'FGSI-PERMIS' : (isTournee.value ? 'FGSI-010-Ind:A' : 'FGSI-001-Ind:F'));
   let itemsPayload = { ...answers };
   let scoreObject = { score: '100.0', confCount: 0, nconfCount: 0, naCount: 0 };
   let soldee = 0, non_engagee = 0, en_cours = 0, en_retard = 0;
 
+  // Construction du payload selon le type de formulaire
   if (isPermis.value) {
     itemsPayload = {
       plan_prevention: parseInt(planPrevention.value || 0, 10),
@@ -352,6 +443,7 @@ const handleSubmit = async () => {
     };
   } else {
     scoreObject = calculateScore();
+    // Décompte précis des actions correctives par statut
     questionsData.value.forEach(q => {
       const a = answers[q.id];
       if (a && a.val === 0) {
@@ -363,6 +455,7 @@ const handleSubmit = async () => {
     });
   }
 
+  // Assemblage du payload final transmis à l'API
   const payload = {
     reference: reference,
     form_type: props.formType,
@@ -382,6 +475,7 @@ const handleSubmit = async () => {
   };
 
   try {
+    // Si modification : appel PUT /{id}, sinon création : POST /
     const url = props.editingAudit ? `${API_AUDITS}/${props.editingAudit.id}` : `${API_AUDITS}/`;
     const method = props.editingAudit ? 'PUT' : 'POST';
 
@@ -390,6 +484,7 @@ const handleSubmit = async () => {
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify(payload)
     });
+
     if (res.ok) {
       emit('showToast', props.editingAudit ? `Fiche #ACTIA-${props.editingAudit.id} mise à jour avec succès !` : `Fiche ${isStatAccidents.value ? 'Statistiques Accidents SST' : (isPermis.value ? 'Permis de Travail' : 'HSE')} enregistrée avec succès !`);
       emit('submitSuccess');
@@ -401,21 +496,31 @@ const handleSubmit = async () => {
   }
 };
 
+/**
+ * Avance d'une étape dans le stepper (gestion de la redirection directe pour permis et accidents).
+ */
 const nextStep = () => {
   if ((isPermis.value || isStatAccidents.value) && currentStep.value === 2) currentStep.value = 5;
   else if (currentStep.value < 5) currentStep.value++;
 };
 
+/**
+ * Recule d'une étape dans le stepper.
+ */
 const prevStep = () => {
   if ((isPermis.value || isStatAccidents.value) && currentStep.value === 5) currentStep.value = 2;
   else if (currentStep.value > 1) currentStep.value--;
 };
 
+// Propriétés calculées pour la vue de synthèse
 const scoreObj = computed(() => calculateScore());
 const nonConformingActions = computed(() => questionsData.value.filter(q => answers[q.id] && answers[q.id].val === 0));
 
 const steps = [1, 2, 3, 4, 5];
 
+/**
+ * Libellé dynamique de l'étape affiché sous les pastilles numérotées.
+ */
 const getStepLabel = (step) => {
   if (step === 1) return "Infos Générales";
   if (step === 2) return isPermis.value ? "Permis & Saisie" : (isStatAccidents.value ? "Grille Mensuelle SST" : (isTournee.value ? "Sécurité & Chimiques" : "EPI & Opérateurs"));
@@ -424,19 +529,23 @@ const getStepLabel = (step) => {
   return "Synthèse & Validation";
 };
 
+/**
+ * Filtre les questions à afficher dans l'étape courante du formulaire.
+ */
 const isTargetStepForQuestion = (q, step) => {
   if (step === 2 && (q.sec === 1 || q.sec === 2 || (isTournee.value && q.sec === 3))) return true;
   if (step === 3 && ((isTournee.value && (q.sec === 4 || q.sec === 5)) || (!isTournee.value && (q.sec === 3 || q.sec === 4)))) return true;
   if (step === 4 && ((isTournee.value && (q.sec === 6 || q.sec === 7 || q.sec === 8)) || (!isTournee.value && (q.sec === 5 || q.sec === 6 || q.sec === 7)))) return true;
   return false;
 };
-
 </script>
 
 <template>
   <div style="background: #f8fafc; color: #0f172a; border-radius: 16px; padding: 2rem; box-shadow: 0 20px 40px rgba(0,0,0,0.4); border: 1px solid #e2e8f0;">
     
-    <!-- EDIT MODE BANNER -->
+    <!-- ===================================================================== -->
+    <!-- BANDEAU INDICATEUR DU MODE MODIFICATION                              -->
+    <!-- ===================================================================== -->
     <div v-if="editingAudit" style="background: linear-gradient(135deg, #d97706 0%, #b45309 100%); color: #ffffff; padding: 14px 22px; border-radius: 12px; margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 15px rgba(217,119,6,0.3); flex-wrap: wrap; gap: 12px;">
       <div style="display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 0.95rem;">
         <FileText :size="22" color="#fef08a" />
@@ -450,7 +559,9 @@ const isTargetStepForQuestion = (q, step) => {
       </button>
     </div>
 
-    <!-- HEADER TOP -->
+    <!-- ===================================================================== -->
+    <!-- BARRE D'EN-TÊTE DU WIZARD                                             -->
+    <!-- ===================================================================== -->
     <div style="display: flex; align-items: center; justify-content: space-between; padding-bottom: 1.25rem; margin-bottom: 1.5rem; border-bottom: 2px solid #e2e8f0;">
       <button class="btn btn-secondary" @click="emit('close')" style="background: #e2e8f0; color: #334155;">
         <ArrowLeft :size="16" /> Retour aux Formulaires
@@ -471,7 +582,9 @@ const isTargetStepForQuestion = (q, step) => {
       </span>
     </div>
 
-    <!-- STEPPER BAR -->
+    <!-- ===================================================================== -->
+    <!-- BARRE DE PROGRESSION EN ÉTAPES (STEPPER)                              -->
+    <!-- ===================================================================== -->
     <div style="display: flex; justify-content: space-between; position: relative; margin-bottom: 2.25rem;">
       <template v-for="step in steps" :key="step">
         <div v-if="!((isPermis || isStatAccidents) && (step === 3 || step === 4))" @click="currentStep = step" style="display: flex; flex-direction: column; align-items: center; cursor: pointer; z-index: 2;">
@@ -483,7 +596,9 @@ const isTargetStepForQuestion = (q, step) => {
       </template>
     </div>
 
-    <!-- STEP 1: INFOS -->
+    <!-- ===================================================================== -->
+    <!-- ÉTAPE 1 : INFORMATIONS GÉNÉRALES DE LA FICHE                          -->
+    <!-- ===================================================================== -->
     <div v-if="currentStep === 1" class="wizard-card" style="background: #fff; border-radius: 12px; padding: 1.5rem; border: 1px solid #e2e8f0;">
       <h3 style="font-size: 1.1rem; font-weight: 800; color: #0f172a; margin-bottom: 1.25rem; border-bottom: 1px dashed #e2e8f0; padding-bottom: 10px;">Étape 1 : Informations Générales d'Audit</h3>
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem;">
@@ -506,7 +621,9 @@ const isTargetStepForQuestion = (q, step) => {
       </div>
     </div>
 
-    <!-- STEP 2: STATISTIQUES ACCIDENTS & SANTÉ MENSUELLE -->
+    <!-- ===================================================================== -->
+    <!-- ÉTAPE 2 (OPTION A) : SUIVI MENSUEL DES ACCIDENTS & SANTÉ AU TRAVAIL    -->
+    <!-- ===================================================================== -->
     <div v-if="currentStep === 2 && isStatAccidents" class="wizard-card" style="background: #fff; border-radius: 12px; padding: 1.5rem; border: 1px solid #e2e8f0;">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 10px;">
         <div>
@@ -523,7 +640,7 @@ const isTargetStepForQuestion = (q, step) => {
         </div>
       </div>
 
-      <!-- TABLEAU EXCEL GRID -->
+      <!-- Grille de données mensuelles (12 mois) -->
       <div style="overflow-x: auto; border: 1px solid #cbd5e1; border-radius: 8px; margin-bottom: 1.5rem;">
         <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem; text-align: center; min-width: 1100px;">
           <thead>
@@ -537,7 +654,7 @@ const isTargetStepForQuestion = (q, step) => {
           </thead>
           <tbody>
 
-            <!-- LIGNE 1 : NOMBRE D'ACCIDENTS (SOMME AVEC ARRET + SANS ARRET) -->
+            <!-- LIGNE 1 : TOTAL ACCIDENTS (SOMME AVEC ARRET + SANS ARRET) -->
             <tr style="background: #f0fdf4; border-bottom: 2px solid #bbf7d0;">
               <td style="padding: 10px 14px; text-align: left; font-weight: 800; color: #166534; border: 1px solid #e2e8f0;">
                 ★ Nombre d'accident de travail <span style="font-size: 0.7rem; font-weight: 600; color: #15803d; display: block;">(Somme : Avec Arrêt + Sans Arrêt)</span>
@@ -550,7 +667,7 @@ const isTargetStepForQuestion = (q, step) => {
               </td>
             </tr>
 
-            <!-- LIGNE 2 : ACCIDENTS AVEC ARRET -->
+            <!-- LIGNE 2 : ACCIDENTS AVEC ARRÊT -->
             <tr style="border-bottom: 1px solid #e2e8f0;">
               <td style="padding: 8px 14px; text-align: left; font-weight: 700; color: #334155; border: 1px solid #e2e8f0;">
                 Nombre d'accidents du travail avec arrêt
@@ -563,7 +680,7 @@ const isTargetStepForQuestion = (q, step) => {
               </td>
             </tr>
 
-            <!-- LIGNE 3 : ACCIDENTS SANS ARRET -->
+            <!-- LIGNE 3 : ACCIDENTS SANS ARRÊT -->
             <tr style="border-bottom: 1px solid #e2e8f0;">
               <td style="padding: 8px 14px; text-align: left; font-weight: 700; color: #334155; border: 1px solid #e2e8f0;">
                 Nombre d'accident de travail sans arrêt
@@ -576,7 +693,7 @@ const isTargetStepForQuestion = (q, step) => {
               </td>
             </tr>
 
-            <!-- LIGNE 4 : HEURES TRAVAILLEES (JAUNE) -->
+            <!-- LIGNE 4 : HEURES TRAVAILLÉES -->
             <tr style="background: #fef9c3; border-bottom: 1px solid #fde047;">
               <td style="padding: 8px 14px; text-align: left; font-weight: 800; color: #854d0e; border: 1px solid #fde047;">
                 Nombre d'heures travaillées
@@ -602,7 +719,7 @@ const isTargetStepForQuestion = (q, step) => {
               </td>
             </tr>
 
-            <!-- LIGNE 6 : NOMBRE DES TRAVAILLEURS (JAUNE) -->
+            <!-- LIGNE 6 : EFFECTIF SALARIÉS -->
             <tr style="background: #fef9c3; border-bottom: 1px solid #fde047;">
               <td style="padding: 8px 14px; text-align: left; font-weight: 800; color: #854d0e; border: 1px solid #fde047;">
                 Nombre des travailleurs
@@ -615,7 +732,7 @@ const isTargetStepForQuestion = (q, step) => {
               </td>
             </tr>
 
-            <!-- LIGNE 7 : NOMBRE DES VISITES MEDICALES (JAUNE) -->
+            <!-- LIGNE 7 : VISITES MÉDICALES -->
             <tr style="background: #fef9c3; border-bottom: 1px solid #fde047;">
               <td style="padding: 8px 14px; text-align: left; font-weight: 800; color: #854d0e; border: 1px solid #fde047;">
                 Nombre des visites médicales
@@ -628,7 +745,7 @@ const isTargetStepForQuestion = (q, step) => {
               </td>
             </tr>
 
-            <!-- LIGNE 8 : NOMBRE DES MALADIES PROFESSIONNELLES (JAUNE) -->
+            <!-- LIGNE 8 : MALADIES PROFESSIONNELLES -->
             <tr style="background: #fef9c3; border-bottom: 2px solid #e2e8f0;">
               <td style="padding: 8px 14px; text-align: left; font-weight: 800; color: #854d0e; border: 1px solid #fde047;">
                 Nombre des maladies Professionnelle
@@ -645,7 +762,7 @@ const isTargetStepForQuestion = (q, step) => {
         </table>
       </div>
 
-      <!-- TABLEAU 2 : INDICATEURS CALCULÉS TF, IF, TG, IG -->
+      <!-- TABLEAU DES INDICATEURS CALCULÉS AUTOMATIQUEMENT (TF, IF, TG, IG) -->
       <div style="margin-top: 1.75rem;">
         <h4 style="font-size: 1rem; font-weight: 800; color: #0284c7; margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">
           <TrendingUp :size="18" color="#0284c7" /> Indicateurs Clés de Sécurité Calculés (TF, IF, TG, IG)
@@ -662,7 +779,7 @@ const isTargetStepForQuestion = (q, step) => {
               </tr>
             </thead>
             <tbody>
-              <!-- TF -->
+              <!-- Taux de Fréquence (TF) -->
               <tr style="background: #f0fdf4; border-bottom: 1px solid #cbd5e1;">
                 <td style="padding: 8px 14px; text-align: left; font-weight: 800; color: #166534; border: 1px solid #e2e8f0;">
                   TF : Taux de Fréquence <span style="font-size: 0.7rem; font-weight: 500; color: #64748b;">(Acc. arrêt / Heures) × 1M</span>
@@ -675,7 +792,7 @@ const isTargetStepForQuestion = (q, step) => {
                 </td>
               </tr>
 
-              <!-- IF -->
+              <!-- Indice de Fréquence (IF) avec alerte visuelle si > Target -->
               <tr style="border-bottom: 1px solid #cbd5e1;">
                 <td style="padding: 8px 14px; text-align: left; font-weight: 800; color: #1e40af; border: 1px solid #e2e8f0;">
                   IF : Indice de Fréquence <span style="font-size: 0.7rem; font-weight: 500; color: #64748b;">(Acc. arrêt / Salariés) × 1 000</span>
@@ -694,7 +811,7 @@ const isTargetStepForQuestion = (q, step) => {
                 </td>
               </tr>
 
-              <!-- TARGET IF -->
+              <!-- Seuil Cible (Target IF) -->
               <tr style="background: #fef2f2; border-bottom: 1px solid #cbd5e1;">
                 <td style="padding: 6px 14px; text-align: left; font-weight: 700; color: #991b1b; border: 1px solid #e2e8f0;">
                   Target IF (Seuil cible)
@@ -707,7 +824,7 @@ const isTargetStepForQuestion = (q, step) => {
                 </td>
               </tr>
 
-              <!-- TG -->
+              <!-- Taux de Gravité (TG) -->
               <tr style="background: #fffbeb; border-bottom: 1px solid #cbd5e1;">
                 <td style="padding: 8px 14px; text-align: left; font-weight: 800; color: #b45309; border: 1px solid #e2e8f0;">
                   TG : Taux de Gravité <span style="font-size: 0.7rem; font-weight: 500; color: #64748b;">(Jours perdus × 1 000) / Heures</span>
@@ -720,7 +837,7 @@ const isTargetStepForQuestion = (q, step) => {
                 </td>
               </tr>
 
-              <!-- SOMME TAUX INCAPACITE PERMANENTE (POUR IG) -->
+              <!-- Taux d'incapacité permanente -->
               <tr style="border-bottom: 1px solid #cbd5e1;">
                 <td style="padding: 6px 14px; text-align: left; font-weight: 700; color: #475569; border: 1px solid #e2e8f0;">
                   Somme taux incapacité permanente (%)
@@ -733,7 +850,7 @@ const isTargetStepForQuestion = (q, step) => {
                 </td>
               </tr>
 
-              <!-- IG -->
+              <!-- Indice de Gravité (IG) -->
               <tr style="background: #faf5ff;">
                 <td style="padding: 8px 14px; text-align: left; font-weight: 800; color: #7e22ce; border: 1px solid #e2e8f0;">
                   IG : Indice de Gravité <span style="font-size: 0.7rem; font-weight: 500; color: #64748b;">(Incap. perm. × 1 000) / Heures</span>
@@ -752,7 +869,9 @@ const isTargetStepForQuestion = (q, step) => {
       </div>
     </div>
 
-    <!-- STEP 2: PERMIS DE TRAVAIL NUMERIC FORM -->
+    <!-- ===================================================================== -->
+    <!-- ÉTAPE 2 (OPTION B) : FORMULAIRE PERMIS DE TRAVAIL                     -->
+    <!-- ===================================================================== -->
     <div v-if="currentStep === 2 && isPermis" class="wizard-card" style="background: #fff; border-radius: 12px; padding: 1.5rem; border: 1px solid #e2e8f0;">
       <h3 style="font-size: 1.1rem; font-weight: 800; color: #3b82f6; margin-bottom: 8px;"><Shield :size="20" style="display: inline; margin-right: 8px;"/> Formulaire Permis de Travail (FGSI-PERMIS)</h3>
       <p style="font-size: 0.85rem; color: #64748b; margin-bottom: 1.25rem;">Saisissez le nombre de permis délivrés pour les travaux planifiés :</p>
@@ -783,18 +902,25 @@ const isTargetStepForQuestion = (q, step) => {
       </div>
     </div>
 
-    <!-- CHECKLIST ITEMS FOR AUDIT / TOURNÉE -->
+    <!-- ===================================================================== -->
+    <!-- ÉTAPES 2, 3 & 4 : QUESTIONS D'ÉVALUATION TERRAIN (AUDIT & TOURNÉE)    -->
+    <!-- ===================================================================== -->
     <div v-if="!isPermis && !isStatAccidents && (currentStep === 2 || currentStep === 3 || currentStep === 4)">
       <template v-for="q in questionsData" :key="q.id">
         <div v-if="isTargetStepForQuestion(q, currentStep)" style="background: #fff; border-radius: 10px; padding: 1.25rem; margin-bottom: 1rem; border: 1px solid #e2e8f0; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
+          <!-- Libellé de la question numérotée -->
           <div style="font-size: 0.93rem; font-weight: 700; color: #1e293b;">{{ q.id }}. {{ q.text }}</div>
+          
+          <!-- Boutons de choix (Conforme / Non Conforme / N/A) -->
           <div style="display: flex; gap: 8px; margin-top: 10px;">
             <button type="button" @click="updateAnswer(q.id, 'val', 1)" :style="{ padding: '6px 14px', borderRadius: '20px', fontSize: '0.82rem', fontWeight: '700', border: '1px solid', borderColor: answers[q.id]?.val === 1 ? '#10b981' : '#cbd5e1', background: answers[q.id]?.val === 1 ? '#10b981' : '#f8fafc', color: answers[q.id]?.val === 1 ? '#fff' : '#475569', cursor: 'pointer' }">✓ Conforme (1)</button>
             <button type="button" @click="updateAnswer(q.id, 'val', 0)" :style="{ padding: '6px 14px', borderRadius: '20px', fontSize: '0.82rem', fontWeight: '700', border: '1px solid', borderColor: answers[q.id]?.val === 0 ? '#ef4444' : '#cbd5e1', background: answers[q.id]?.val === 0 ? '#ef4444' : '#f8fafc', color: answers[q.id]?.val === 0 ? '#fff' : '#475569', cursor: 'pointer' }">✗ Non Conforme (0)</button>
             <button type="button" @click="updateAnswer(q.id, 'val', 'NA')" :style="{ padding: '6px 14px', borderRadius: '20px', fontSize: '0.82rem', fontWeight: '700', border: '1px solid', borderColor: answers[q.id]?.val === 'NA' ? '#64748b' : '#cbd5e1', background: answers[q.id]?.val === 'NA' ? '#64748b' : '#f8fafc', color: answers[q.id]?.val === 'NA' ? '#fff' : '#475569', cursor: 'pointer' }">N/A</button>
           </div>
 
-          <!-- FULL NON-CONFORME ACTION SUBCARD -->
+          <!-- =============================================================== -->
+          <!-- SOUS-CARTE D'ACTION CORRECTIVE EN CAS DE NON-CONFORMITÉ (VAL=0) -->
+          <!-- =============================================================== -->
           <div v-if="answers[q.id]?.val === 0" style="margin-top: 12px; padding: 1.25rem; background: #f8fafc; border-left: 4px solid #ef4444; border-radius: 8px; border: 1px solid #fee2e2;">
             <div style="font-size: 0.82rem; font-weight: 800; color: #ef4444; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
               <AlertTriangle :size="16" color="#ef4444" /> Action Corrective & Constat Requis
@@ -802,13 +928,13 @@ const isTargetStepForQuestion = (q, step) => {
 
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
               
-              <!-- CONSTAT -->
+              <!-- 1. Constat détaillé -->
               <div>
                 <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">Constat détecté</label>
                 <input type="text" class="light-input" placeholder="Description du constat..." :value="answers[q.id]?.constat || ''" @input="e => updateAnswer(q.id, 'constat', e.target.value)" />
               </div>
 
-              <!-- PHOTO DROPZONE / FILE PICKER -->
+              <!-- 2. Téléversement de photo de preuve -->
               <div>
                 <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">Photo (Facultatif — Parcourir)</label>
                 <div v-if="!answers[q.id]?.photo" style="border: 2px dashed #00c996; background: rgba(0,201,150,0.05); padding: 10px; border-radius: 8px; text-align: center; cursor: pointer;">
@@ -824,19 +950,19 @@ const isTargetStepForQuestion = (q, step) => {
                 </div>
               </div>
 
-              <!-- ACTION PROPOSÉE -->
+              <!-- 3. Action corrective proposée -->
               <div>
                 <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">Action à mener</label>
                 <input type="text" class="light-input" placeholder="Action corrective proposée..." :value="answers[q.id]?.action || ''" @input="e => updateAnswer(q.id, 'action', e.target.value)" />
               </div>
 
-              <!-- RESPONSABLE DÉSIGNÉ -->
+              <!-- 4. Responsable désigné -->
               <div>
                 <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">Responsable désigné</label>
                 <input type="text" class="light-input" placeholder="ex: Responsable Maintenance" :value="answers[q.id]?.resp || ''" @input="e => updateAnswer(q.id, 'resp', e.target.value)" />
               </div>
 
-              <!-- DÉLAI & ÉTAT ACTION -->
+              <!-- 5. Délai d'exécution et Statut de l'action -->
               <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
                 <div>
                   <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">Délai (Date)</label>
@@ -853,7 +979,7 @@ const isTargetStepForQuestion = (q, step) => {
                 </div>
               </div>
 
-              <!-- COMMENTAIRES -->
+              <!-- 6. Commentaires / Observations -->
               <div>
                 <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">Commentaires / Observations</label>
                 <input type="text" class="light-input" placeholder="Remarques..." :value="answers[q.id]?.comm || ''" @input="e => updateAnswer(q.id, 'comm', e.target.value)" />
@@ -865,8 +991,11 @@ const isTargetStepForQuestion = (q, step) => {
       </template>
     </div>
 
-    <!-- STEP 5: SYNTHÈSE & SUBMISSION -->
+    <!-- ===================================================================== -->
+    <!-- ÉTAPE 5 : SYNTHÈSE GLOBALE & VALIDATION FINALE                        -->
+    <!-- ===================================================================== -->
     <div v-if="currentStep === 5">
+      <!-- Bandeau récapitulatif du score global -->
       <div style="background: linear-gradient(135deg, #003d4d 0%, #001c24 100%); color: #fff; border-radius: 12px; padding: 1.75rem; display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem;">
         <div>
           <div style="font-size: 0.85rem; font-weight: 700; text-transform: uppercase; color: #a8e063;">Synthèse de la Fiche</div>
@@ -879,7 +1008,7 @@ const isTargetStepForQuestion = (q, step) => {
         </div>
       </div>
 
-      <!-- SYNTHESE STATISTIQUES ACCIDENTS -->
+      <!-- Synthèse des statistiques d'accidents -->
       <div v-if="isStatAccidents" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
         <div style="padding: 14px; background: #fff; border: 1px solid #e2e8f0; border-left: 4px solid #10b981; border-radius: 8px;">
           <div style="font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase;">Total Accidents</div>
@@ -924,6 +1053,7 @@ const isTargetStepForQuestion = (q, step) => {
         </div>
       </div>
 
+      <!-- Synthèse des permis de travail -->
       <div v-else-if="isPermis" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
         <div style="padding: 15px; background: #fff; border: 1px solid #e2e8f0; border-left: 4px solid #3b82f6; border-radius: 8px;">
           <div style="font-size: 0.8rem; font-weight: 700; color: #64748b;">Plan de Prévention</div>
@@ -938,6 +1068,8 @@ const isTargetStepForQuestion = (q, step) => {
           <div style="font-size: 1.6rem; font-weight: 800; color: #b91c1c; margin-top: 4px;">{{ permisFeu }}</div>
         </div>
       </div>
+
+      <!-- Tableau récapitulatif des actions correctives pour Audit & Tournée -->
       <div v-else-if="nonConformingActions.length > 0" class="wizard-card" style="background: #fff; border-radius: 12px; padding: 1.25rem; margin-bottom: 1.5rem; border: 1px solid #e2e8f0;">
         <h3 style="font-size: 1.05rem; font-weight: 800; color: #ef4444; margin-bottom: 1rem; display: flex; align-items: center; gap: 8px;">
           <AlertTriangle :size="18" color="#ef4444" /> Tableau Récapitulatif des Actions Correctives Générées ({{ nonConformingActions.length }})
@@ -975,18 +1107,22 @@ const isTargetStepForQuestion = (q, step) => {
         </div>
       </div>
 
-
+      <!-- Commentaires finaux -->
       <div style="margin-bottom: 1.5rem;">
         <label style="font-size: 0.82rem; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Commentaires généraux des auditeurs / intervenants</label>
         <textarea class="light-input" rows="4" placeholder="Remarques finales..." v-model="commentairesGeneraux"></textarea>
       </div>
     </div>
 
-    <!-- FOOTER ACTIONS -->
+    <!-- ===================================================================== -->
+    <!-- BARRE D'ACTIONS INFÉRIEURE : NAVIGATION PRÉCÉDENT / SUIVANT / VALIDER -->
+    <!-- ===================================================================== -->
     <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 2rem; padding-top: 1.25rem; border-top: 2px solid #e2e8f0;">
+      <!-- Bouton Étape Précédente -->
       <button class="btn btn-secondary" @click="prevStep" :style="{ visibility: currentStep === 1 ? 'hidden' : 'visible', background: '#e2e8f0', color: '#334155' }">
         <ChevronLeft :size="16" /> Étape Précédente
       </button>
+      <!-- Bouton Étape Suivante ou Validation définitive à l'étape 5 -->
       <button class="btn btn-primary" @click="currentStep === 5 ? handleSubmit() : nextStep()" style="max-width: 260px;">
         <template v-if="currentStep === 5">
           {{ editingAudit ? 'Mettre à jour la Fiche' : 'Soumettre la Fiche HSE' }}

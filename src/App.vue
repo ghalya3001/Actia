@@ -1,8 +1,33 @@
+<!--
+===============================================================================
+COMPOSANT RACINE DE L'APPLICATION (APP.VUE)
+===============================================================================
+Rôle :
+  Composant chef d'orchestre de l'application cliente PlatformActia :
+  1. Gestion de l'état d'authentification :
+     - Vérification et lecture du jeton JWT dans le localStorage.
+     - Affichage conditionnel entre l'écran de connexion (`AuthScreen`) et l'application principale.
+     - Chargement automatique du profil utilisateur (`loadUserProfile`).
+  2. Routage interne dynamique (sans bibliothèque externe lourde) :
+     - Pages gérées : 'home', 'formulaire', 'historique', 'dashboard', 'profile'.
+     - Bascule fluide entre le sélecteur de formulaires et l'assistant de saisie pas-à-pas (`wizardMode`).
+  3. Gestion centralisée des fenêtres modales et dialogues :
+     - Visualisation détaillée d'un audit (`AuditDetailModal`).
+     - Confirmation sécurisée de suppression (`DeleteModal`).
+     - Modèle d'impression / export PDF (`PrintReport`).
+  4. Système de notifications toasts temporaires (succès et erreurs).
+===============================================================================
+-->
+
 <script setup>
 import { ref, watch, onMounted } from 'vue'
+
+// --- 1. Imports des Composants de Navigation et d'Agencement ---
 import Home from './components/home/Home.vue'
 import Sidebar from './components/layout/Sidebar.vue'
 import Topbar from './components/layout/Topbar.vue'
+
+// --- 2. Imports des Composants Métier HSE ---
 import AuthScreen from './components/auth/AuthScreen.vue'
 import FormSelector from './components/forms/FormSelector.vue'
 import AuditWizard from './components/forms/AuditWizard.vue'
@@ -13,29 +38,58 @@ import PrintReport from './components/history/PrintReport.vue'
 import HseDashboard from './components/dashboard/HseDashboard.vue'
 import UserProfile from './components/profile/UserProfile.vue'
 
+/**
+ * Récupère le jeton JWT depuis le localStorage en filtrant les valeurs corrompues ('null', 'undefined', vide).
+ * @returns {string|null} Le jeton valide ou null si absent.
+ */
 const getValidToken = () => {
   const t = localStorage.getItem('access_token')
   return (t && t !== 'null' && t !== 'undefined' && t.trim() !== '') ? t : null
 }
 
+// --- 3. États Réactifs Globaux de l'Application ---
+// Jeton d'accès JWT pour authentifier les requêtes API
 const token = ref(getValidToken())
+
+// Informations du profil utilisateur connecté (nom, email, rôle)
 const user = ref(null)
+
+// Page actuellement active dans la vue ('home', 'formulaire', 'historique', 'dashboard', 'profile')
 const currentPage = ref('home')
 
+// Indicateur d'affichage de l'assistant de formulaire pas-à-pas (Wizard)
 const wizardMode = ref(false)
+
+// Type de formulaire sélectionné ('audit_hse', 'tournee_hse', 'permis_travail', etc.)
 const selectedFormType = ref('audit_hse')
+
+// Fiche d'audit chargée en mode édition (null si nouvelle création)
 const editingAudit = ref(null)
 
+// Liste des audits récupérés pour l'historique
 const auditsList = ref([])
+
+// Fiche en cours de consultation dans la modale de détail
 const viewingAudit = ref(null)
+
+// Fiche ciblée pour demande de confirmation de suppression
 const deletingAudit = ref(null)
+
+// Fiche sélectionnée pour impression ou génération de rapport PDF
 const printingAudit = ref(null)
 
+// File d'attente des messages d'alerte temporaires (toasts)
 const toasts = ref([])
 
+// --- 4. URLs de Base des Endpoints Backend ---
 const API_BASE = window.location.origin + '/api/v1/auth'
 const API_AUDITS = window.location.origin + '/api/v1/audits'
 
+/**
+ * Affiche une notification toast temporaire avec disparition automatique après 4 secondes.
+ * @param {string|object|Array} msg - Message texte ou objet d'erreur retourné par FastAPI.
+ * @param {'success'|'error'} type - Type visuel de la notification.
+ */
 const showToast = (msg, type = 'success') => {
   const id = Date.now()
   let displayMsg = 'Une erreur est survenue'
@@ -52,6 +106,10 @@ const showToast = (msg, type = 'success') => {
   }, 4000)
 }
 
+/**
+ * Charge les informations du profil utilisateur depuis le backend via /api/v1/auth/me.
+ * @param {string} authToken - Le jeton d'accès JWT.
+ */
 const loadUserProfile = async (authToken) => {
   try {
     const res = await fetch(`${API_BASE}/me`, {
@@ -68,6 +126,9 @@ const loadUserProfile = async (authToken) => {
   }
 }
 
+/**
+ * Récupère l'historique complet des soumissions de formulaires depuis le backend.
+ */
 const fetchAuditsHistory = async () => {
   if (!token.value) return
   try {
@@ -81,18 +142,25 @@ const fetchAuditsHistory = async () => {
   } catch (err) {}
 }
 
+// --- 5. Écouteurs Réactifs (Watchers) ---
+// Déclenche le rechargement du profil dès que le token change ou à l'initialisation
 watch(token, (newToken) => {
   if (newToken) {
     loadUserProfile(newToken)
   }
 }, { immediate: true })
 
+// Rafraîchit l'historique quand l'utilisateur navigue vers les pages 'historique' ou 'home'
 watch([token, currentPage], ([t, page]) => {
   if (t && (page === 'historique' || page === 'home')) {
     fetchAuditsHistory()
   }
 })
 
+// --- 6. Gestionnaires d'Événements de l'Application ---
+/**
+ * Déconnecte l'utilisateur, nettoie le localStorage et réinitialise l'état réactif.
+ */
 const handleLogout = () => {
   localStorage.removeItem('access_token')
   localStorage.removeItem('refresh_token')
@@ -101,22 +169,38 @@ const handleLogout = () => {
   showToast('Déconnexion réussie.')
 }
 
+/**
+ * Traite la réussite de connexion : enregistre le jeton et charge le profil.
+ * @param {string} t - Le nouveau token d'accès JWT.
+ */
 const handleLoginSuccess = (t) => {
   token.value = t
   loadUserProfile(t)
 }
 
+/**
+ * Ouvre l'assistant de formulaire (Wizard) en mode création ou modification.
+ * @param {string} formType - Identifiant du formulaire ('audit_hse', 'tournee_hse', etc.).
+ * @param {object|null} auditToEdit - Données de l'audit existant si modification.
+ */
 const handleOpenWizard = (formType, auditToEdit = null) => {
   selectedFormType.value = auditToEdit ? (auditToEdit.form_type || 'audit_hse') : formType
   editingAudit.value = auditToEdit
   wizardMode.value = true
 }
 
+/**
+ * Navigue vers une page donnée et réinitialise le mode Wizard.
+ * @param {string} page - Nom de la page cible.
+ */
 const handleNavigate = (page) => {
   wizardMode.value = false
   currentPage.value = page
 }
 
+/**
+ * Exécute l'appel API DELETE pour supprimer définitivement une fiche d'audit.
+ */
 const handleExecuteDelete = async () => {
   if (!deletingAudit.value) return
   try {
@@ -136,12 +220,15 @@ const handleExecuteDelete = async () => {
 </script>
 
 <template>
-  <!-- AUTH SCREEN (not logged in) -->
+  <!-- ======================================================================= -->
+  <!-- CAS 1 : UTILISATEUR NON AUTHENTIFIÉ — ÉCRAN DE CONNEXION / INSCRIPTION -->
+  <!-- ======================================================================= -->
   <template v-if="!token">
     <AuthScreen
       @login-success="handleLoginSuccess"
       @show-toast="showToast"
     />
+    <!-- Conteneur des notifications toasts pour l'écran de login -->
     <div class="toast-container">
       <div
         v-for="t in toasts"
@@ -151,26 +238,31 @@ const handleExecuteDelete = async () => {
     </div>
   </template>
 
-  <!-- MAIN APP LAYOUT (logged in) -->
+  <!-- ======================================================================= -->
+  <!-- CAS 2 : APPLICATION PRINCIPALE — UTILISATEUR AUTHENTIFIÉ               -->
+  <!-- ======================================================================= -->
   <template v-else>
     <div class="app-layout">
+      <!-- Barre de navigation latérale -->
       <Sidebar
         :current-page="currentPage"
         @update:current-page="handleNavigate"
         @logout="handleLogout"
       />
+      <!-- Barre supérieure d'en-tête et statut profil -->
       <Topbar
         :current-page="currentPage"
         :user="user"
         @profile-click="() => { wizardMode = false; currentPage = 'profile' }"
       />
 
+      <!-- Zone d'affichage du contenu dynamique de la page courante -->
       <main class="main-content">
 
-        <!-- PAGE HOME -->
+        <!-- 1. Page d'Accueil : vue d'ensemble et accès rapides -->
         <Home v-if="currentPage === 'home'" @navigate="handleNavigate" />
 
-        <!-- PAGE FORMULAIRE -->
+        <!-- 2. Page des Formulaires : Sélecteur de grille OU Assistant pas-à-pas -->
         <div v-if="currentPage === 'formulaire'" class="page-anim">
           <FormSelector
             v-if="!wizardMode"
@@ -186,7 +278,7 @@ const handleExecuteDelete = async () => {
           />
         </div>
 
-        <!-- PAGE HISTORIQUE -->
+        <!-- 3. Page Historique : Tableau de bord de recherche et filtrage -->
         <div v-if="currentPage === 'historique'" class="page-anim">
           <HistoryTable
             :audits="auditsList"
@@ -198,25 +290,29 @@ const handleExecuteDelete = async () => {
           />
         </div>
 
-        <!-- PAGE DASHBOARD -->
+        <!-- 4. Page Dashboard : Graphiques et indicateurs analytiques -->
         <div v-if="currentPage === 'dashboard'" class="page-anim">
           <HseDashboard @show-toast="showToast" />
         </div>
 
-        <!-- PAGE PROFILE -->
+        <!-- 5. Page Profil : Informations du compte et changement de mot de passe -->
         <div v-if="currentPage === 'profile'" class="page-anim">
           <UserProfile :user="user" @show-toast="showToast" />
         </div>
 
       </main>
 
-      <!-- MODALS -->
+      <!-- =================================================================== -->
+      <!-- DIALOGUES ET MODALES SYSTÈME                                        -->
+      <!-- =================================================================== -->
+      <!-- Fenêtre modale de consultation détaillée d'un audit -->
       <AuditDetailModal
         v-if="viewingAudit"
         :audit="viewingAudit"
         @close="viewingAudit = null"
         @print="(audit) => { viewingAudit = null; printingAudit = audit }"
       />
+      <!-- Fenêtre modale de confirmation de suppression -->
       <DeleteModal
         v-if="deletingAudit"
         :audit="deletingAudit"
@@ -224,7 +320,7 @@ const handleExecuteDelete = async () => {
         @confirm="handleExecuteDelete"
       />
 
-      <!-- TOAST CONTAINER -->
+      <!-- Conteneur des notifications toasts de l'application -->
       <div class="toast-container">
         <div
           v-for="t in toasts"
@@ -234,7 +330,10 @@ const handleExecuteDelete = async () => {
       </div>
     </div>
 
-    <!-- PRINT REPORT — rendered OUTSIDE .app-layout so it stays visible during print -->
+    <!-- ===================================================================== -->
+    <!-- RAPPORT D'IMPRESSION / EXPORT PDF                                     -->
+    <!-- Positionné hors de .app-layout pour éviter tout masquage CSS print    -->
+    <!-- ===================================================================== -->
     <PrintReport
       v-if="printingAudit"
       :audit="printingAudit"

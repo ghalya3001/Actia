@@ -1,9 +1,31 @@
+<!--
+===============================================================================
+BARRE DE NAVIGATION LATÉRALE (SIDEBAR.VUE)
+===============================================================================
+Rôle :
+  Composant de menu latéral fixe de l'application :
+  - Affiche le logo officiel et le titre de la plateforme PlatformActia.
+  - Fournit la liste des liens de navigation vers les 5 vues principales.
+  - Met en surbrillance l'élément actif en fonction de la prop `currentPage`.
+  - Intègre le bouton d'action de déconnexion sécurisée en pied de barre.
+
+Équipe de maintenance :
+  Pour ajouter une nouvelle entrée de menu, insérez simplement un nouvel objet
+  dans le tableau `navItems` avec son identifiant, libellé et icône Lucide.
+===============================================================================
+-->
+
 <script setup>
 import { Home, FileEdit, Clock, LineChart, User, LogOut } from 'lucide-vue-next'
 
+// --- Props et Événements ---
+// currentPage : nom de la page présentement visualisée (pour mise en surbrillance)
 const props = defineProps(['currentPage'])
+
+// Événements émis vers le composant parent App.vue
 const emit = defineEmits(['update:currentPage', 'logout'])
 
+// Configuration des éléments de la barre de navigation
 const navItems = [
   { id: 'home', label: "Page d'Accueil", icon: Home },
   { id: 'formulaire', label: 'Formulaires HSE', icon: FileEdit },
@@ -15,6 +37,7 @@ const navItems = [
 
 <template>
   <aside class="sidebar">
+    <!-- En-tête de la Sidebar : Logo et Identité visuelle PlatformActia -->
     <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: 1px solid rgba(0,201,150,0.2)">
       <div style="width: 40px; height: 40px; border-radius: 10px; background: var(--color-primary); color: #00141a; font-weight: 800; font-size: 1.4rem; display: flex; align-items: center; justify-content: center">P</div>
       <div>
@@ -23,6 +46,7 @@ const navItems = [
       </div>
     </div>
 
+    <!-- Navigation principale : Boutons de sélection de page -->
     <nav style="display: flex; flex-direction: column; gap: 8px; flex: 1">
       <div style="font-size: 0.72rem; font-weight: 800; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px">Navigation</div>
       <button
@@ -51,6 +75,7 @@ const navItems = [
       </button>
     </nav>
 
+    <!-- Pied de la Sidebar : Bouton de déconnexion -->
     <div style="padding-top: 1rem; border-top: 1px solid rgba(0,201,150,0.2)">
       <button
         @click="emit('logout')"

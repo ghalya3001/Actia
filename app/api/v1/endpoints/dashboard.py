@@ -1,12 +1,19 @@
 """
 ===============================================================================
-ENDPOINTS API DASHBOARD & WIDGETS (DASHBOARD.PY)
+ENDPOINTS API DU TABLEAU DE BORD ET DES WIDGETS (DASHBOARD.PY)
 ===============================================================================
-Ce module fournit les routes nécessaires à l'affichage et à la personnalisation
-dynamique du Dashboard :
-  - Consultation des KPIs et snapshots calculés
-  - Gestion des widgets configurables par l'utilisateur
-  - Catalogue des définitions de KPIs
+Rôle :
+  Fournit l'API pour alimenter et personnaliser dynamiquement le Dashboard HSE :
+  1. `GET  /definitions` : Catalogue des indicateurs configurables disponibles.
+  2. `GET  /snapshots`   : Liste des calculs en cache pour alimenter instantanément Chart.js.
+  3. `GET  /widgets`     : Grille de widgets personnalisée du manager (avec fallback par défaut).
+  4. `POST /widgets`     : Ajout d'un nouveau widget sur le tableau de bord.
+  5. `PUT  /widgets/{id}`: Mise à jour des coordonnées (X, Y) et dimensions (Largeur, Hauteur).
+  6. `DELETE /widgets/{id}`: Retrait d'un widget de la vue.
+
+Équipe de maintenance :
+  - Si un manager n'a encore configuré aucun widget lors de sa première visite sur `/widgets`,
+    le backend initialise automatiquement les 6 premiers widgets du catalogue en grille 3x2.
 ===============================================================================
 """
 
@@ -23,49 +30,63 @@ from app.services.kpi_service import KPIService
 router = APIRouter()
 
 
-# Schemas Pydantic légers pour le Dashboard
+# =============================================================================
+# 1. SCHÉMAS PYDANTIC DÉDIÉS AUX ENDPOINTS DU DASHBOARD
+# =============================================================================
 class KPIDefinitionOut(BaseModel):
+    """
+    Format d'exposition d'une définition du catalogue d'indicateurs.
+    """
     id: int
-    name: str
-    label: str
-    description: Optional[str] = None
-    form_type: str
-    source_table: str
-    aggregation: str
-    chart_type: str
-    display_order: int
+    name: str                          # Identifiant technique (ex: 'avg_conformite')
+    label: str                         # Titre affiché (ex: 'Taux Moyen de Conformité')
+    description: Optional[str] = None  # Explication pédagogique
+    form_type: str                     # Périmètre ('all', 'audit_hse', etc.)
+    source_table: str                  # Table source SQL
+    aggregation: str                   # Fonction d'agrégation ('AVG', 'COUNT', etc.)
+    chart_type: str                    # Type de visuel ('card', 'doughnut', 'bar', 'line')
+    display_order: int                 # Ordre d'affichage
 
     class Config:
         from_attributes = True
 
 
 class KPISnapshotOut(BaseModel):
+    """
+    Données consolidées d'un snapshot en cache envoyées au frontend pour tracer les graphiques.
+    """
     id: int
     kpi_id: int
     kpi_name: str
     kpi_label: str
     chart_type: str
     value: Optional[float] = None
-    breakdown_data: Optional[Dict[str, Any]] = None
+    breakdown_data: Optional[Dict[str, Any]] = None  # Séries de données groupées pour Chart.js
     computed_at: Any
 
 
 class DashboardWidgetOut(BaseModel):
+    """
+    Configuration complète d'un widget de tableau de bord prêt à l'affichage.
+    """
     id: int
     kpi_id: int
     kpi_name: str
     kpi_label: str
     chart_type: str
-    position_x: int
-    position_y: int
-    width: int
-    height: int
+    position_x: int                    # Colonne d'ancrage sur la grille (0, 1, 2...)
+    position_y: int                    # Ligne d'ancrage sur la grille (0, 1, 2...)
+    width: int                         # Largeur en nombre de colonnes
+    height: int                        # Hauteur en nombre de lignes
     extra_config: Optional[Dict[str, Any]] = None
     value: Optional[float] = None
     breakdown_data: Optional[Dict[str, Any]] = None
 
 
 class DashboardWidgetCreate(BaseModel):
+    """
+    Données nécessaires pour épingler un nouvel indicateur sur le tableau de bord.
+    """
     kpi_id: int
     position_x: int = 0
     position_y: int = 0
@@ -75,6 +96,9 @@ class DashboardWidgetCreate(BaseModel):
 
 
 class DashboardWidgetUpdate(BaseModel):
+    """
+    Données de redimensionnement ou repositionnement d'un widget (Drag & Drop / Resize).
+    """
     position_x: Optional[int] = None
     position_y: Optional[int] = None
     width: Optional[int] = None
@@ -82,38 +106,47 @@ class DashboardWidgetUpdate(BaseModel):
     extra_config: Optional[Dict[str, Any]] = None
 
 
-# -----------------------------------------------------------------------------
-# 1. CATALOGUE DES DÉFINITIONS DE KPIS
-# -----------------------------------------------------------------------------
+# =============================================================================
+# 2. ENDPOINT : CATALOGUE DES DÉFINITIONS DE KPIS
+# =============================================================================
 @router.get(
     "/definitions",
     response_model=List[KPIDefinitionOut],
-    summary="Obtenir le catalogue des KPIs disponibles"
+    summary="Obtenir le catalogue de tous les indicateurs configurables disponibles"
 )
 def get_kpi_definitions(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ) -> Any:
+    """
+    Retourne l'ensemble des définitions de KPIs actives, triées selon leur ordre d'affichage.
+    Initialise les indicateurs par défaut si la base est neuve.
+    """
     KPIService.ensure_default_kpi_definitions(db)
     return db.query(KPIDefinition).filter(KPIDefinition.is_active == True).order_by(KPIDefinition.display_order).all()
 
 
-# -----------------------------------------------------------------------------
-# 2. TOUS LES SNAPSHOTS DU RESPONSABLE (Alimentation directe des charts)
-# -----------------------------------------------------------------------------
+# =============================================================================
+# 3. ENDPOINT : SNAPSHOTS PRÉ-CALCULÉS DU MANAGER (ALIMENTATION DES CHARTS)
+# =============================================================================
 @router.get(
     "/snapshots",
     response_model=List[KPISnapshotOut],
-    summary="Obtenir tous les snapshots calculés pour le responsable"
+    summary="Obtenir tous les snapshots en cache calculés pour le responsable connecté"
 )
 def get_user_snapshots(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ) -> Any:
+    """
+    Récupère instantanément depuis 'kpi_snapshots' l'ensemble des valeurs numériques
+    et séries groupées (camembert, barres, séries temporelles) calculées pour ce manager.
+    Si aucun snapshot n'est présent, un calcul initial est immédiatement exécuté.
+    """
     KPIService.ensure_default_kpi_definitions(db)
     snapshots = db.query(KPISnapshot).filter(KPISnapshot.user_id == current_user.id).all()
 
-    # Si aucun snapshot encore calculé, calculer maintenant
+    # Si la table de cache est vide pour cet utilisateur, déclencher un premier calcul
     if not snapshots:
         KPIService.recalculate_kpis_for_user(current_user.id)
         snapshots = db.query(KPISnapshot).filter(KPISnapshot.user_id == current_user.id).all()
@@ -134,21 +167,26 @@ def get_user_snapshots(
     return result
 
 
-# -----------------------------------------------------------------------------
-# 3. WIDGETS CONFIGURÉS PAR L'UTILISATEUR
-# -----------------------------------------------------------------------------
+# =============================================================================
+# 4. ENDPOINT : CONSULTATION DES WIDGETS DU TABLEAU DE BORD
+# =============================================================================
 @router.get(
     "/widgets",
     response_model=List[DashboardWidgetOut],
-    summary="Obtenir la liste des widgets configurés par le responsable"
+    summary="Obtenir la grille des widgets personnalisés du responsable connecté"
 )
 def get_user_widgets(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ) -> Any:
+    """
+    Retourne la disposition actuelle des widgets du tableau de bord.
+    Si l'utilisateur arrive pour la première fois, génère automatiquement
+    une disposition initiale standard composée de 6 widgets représentatifs.
+    """
     widgets = db.query(DashboardWidget).filter(DashboardWidget.user_id == current_user.id).all()
 
-    # Si l'utilisateur n'a pas encore de widgets, créer la configuration par défaut
+    # Génération automatique de la grille par défaut si aucune configuration n'existe
     if not widgets:
         KPIService.ensure_default_kpi_definitions(db)
         defs = db.query(KPIDefinition).order_by(KPIDefinition.display_order).limit(6).all()
@@ -156,8 +194,8 @@ def get_user_widgets(
             w = DashboardWidget(
                 user_id=current_user.id,
                 kpi_id=kdef.id,
-                position_x=idx % 3,
-                position_y=idx // 3,
+                position_x=idx % 3,   # Répartition sur 3 colonnes
+                position_y=idx // 3,  # Calcul de la rangée
                 width=1,
                 height=1
             )
@@ -165,7 +203,7 @@ def get_user_widgets(
         db.commit()
         widgets = db.query(DashboardWidget).filter(DashboardWidget.user_id == current_user.id).all()
 
-    # Récupération des valeurs snapshots associées
+    # Jointure avec les valeurs actuelles des snapshots pour chaque widget
     res = []
     for w in widgets:
         kdef = w.kpi_def
@@ -191,17 +229,23 @@ def get_user_widgets(
     return res
 
 
+# =============================================================================
+# 5. ENDPOINT : AJOUT D'UN NOUVEAU WIDGET
+# =============================================================================
 @router.post(
     "/widgets",
     response_model=DashboardWidgetOut,
     status_code=status.HTTP_201_CREATED,
-    summary="Ajouter un widget personnalisé"
+    summary="Ajouter un widget personnalisé sur le tableau de bord"
 )
 def add_widget(
     widget_in: DashboardWidgetCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ) -> Any:
+    """
+    Enregistre un nouveau widget positionné sur la grille du manager.
+    """
     w = DashboardWidget(
         user_id=current_user.id,
         kpi_id=widget_in.kpi_id,
@@ -214,6 +258,7 @@ def add_widget(
     db.add(w)
     db.commit()
     db.refresh(w)
+
     return DashboardWidgetOut(
         id=w.id,
         kpi_id=w.kpi_id,
@@ -228,9 +273,12 @@ def add_widget(
     )
 
 
+# =============================================================================
+# 6. ENDPOINT : MODIFICATION D'UN WIDGET (REPOSITIONNEMENT)
+# =============================================================================
 @router.put(
     "/widgets/{widget_id}",
-    summary="Mettre à jour la disposition d'un widget"
+    summary="Mettre à jour la position ou la dimension d'un widget"
 )
 def update_widget(
     widget_id: int,
@@ -238,6 +286,9 @@ def update_widget(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ) -> Any:
+    """
+    Met à jour les coordonnées X, Y ou les dimensions Width, Height du widget spécifié.
+    """
     w = db.query(DashboardWidget).filter(
         DashboardWidget.id == widget_id,
         DashboardWidget.user_id == current_user.id
@@ -251,15 +302,21 @@ def update_widget(
     return {"message": "Widget mis à jour avec succès"}
 
 
+# =============================================================================
+# 7. ENDPOINT : SUPPRESSION D'UN WIDGET
+# =============================================================================
 @router.delete(
     "/widgets/{widget_id}",
-    summary="Supprimer un widget de son dashboard"
+    summary="Supprimer un widget du tableau de bord"
 )
 def delete_widget(
     widget_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ) -> Any:
+    """
+    Retire le widget de la vue du manager sans supprimer la définition du KPI associée.
+    """
     w = db.query(DashboardWidget).filter(
         DashboardWidget.id == widget_id,
         DashboardWidget.user_id == current_user.id

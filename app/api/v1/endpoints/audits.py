@@ -1,18 +1,21 @@
 """
 ===============================================================================
-ENDPOINTS API AUDITS & TOURNÉES HSE (AUDITS.PY)
+ENDPOINTS API AUDITS & FORMULAIRES DE SÉCURITÉ HSE (AUDITS.PY)
 ===============================================================================
-Ce module définit l'ensemble des routes CRUD (Create, Read, Update, Delete)
-pour la gestion des Fiches d'Audit HSE (FGSI-001), Tournées HSE (FGSI-010)
-et Permis de Travail (FGSI-PERMIS).
+Rôle :
+  Expose l'ensemble des opérations CRUD pour les formulaires de contrôle terrain :
+  - `POST /`            : Création d'un audit, tournée ou permis avec ventilation relationnelle.
+  - `GET  /`            : Liste filtrable des soumissions du manager connecté (dates, secteurs, types).
+  - `GET  /stats`       : Statistiques consolidées et instantanées pour le Dashboard.
+  - `GET  /{audit_id}`  : Consultation détaillée unitaire avec reconstitution de `items_data`.
+  - `PUT  /{audit_id}`  : Modification partielle ou mise à jour des statuts de plans d'action.
+  - `DELETE /{audit_id}`: Suppression définitive en cascade BDD.
 
 Caractéristiques architecturales :
-  - Compatible à 100% avec les formulaires frontend (contrats préservés)
-  - Données stockées dans les tables normalisées (form_submissions, audit_hse_submissions, items)
-  - Recalcul automatique des KPIs en arrière-plan (FastAPI BackgroundTasks)
-  - Affichage instantané des statistiques et KPIs
-
-Auteurs / Équipe : CIPI ACTIA - Plateforme HSE
+  - Toutes les routes sont protégées par le token JWT (`Depends(get_current_user)`).
+  - Recalcul non-bloquant en arrière-plan : Après chaque création, modification ou suppression,
+    une tâche de fond FastAPI (`BackgroundTasks`) recalcule les indicateurs KPIs sans ralentir
+    la réponse retournée au client.
 ===============================================================================
 """
 
@@ -29,14 +32,14 @@ from app.services.kpi_service import KPIService
 router = APIRouter()
 
 
-# -----------------------------------------------------------------------------
-# 1. CRÉATION D'UN NOUVEL AUDIT / TOURNÉE / PERMIS HSE
-# -----------------------------------------------------------------------------
+# =============================================================================
+# 1. CRÉATION D'UN NOUVEL ENREGISTREMENT HSE
+# =============================================================================
 @router.post(
     "/",
     response_model=HSEAuditOut,
     status_code=status.HTTP_201_CREATED,
-    summary="Créer et enregistrer un formulaire HSE"
+    summary="Créer et enregistrer un nouveau formulaire HSE"
 )
 def create_audit(
     audit_in: HSEAuditCreate,
@@ -46,16 +49,26 @@ def create_audit(
 ) -> Any:
     """
     [CREATE] Enregistre une nouvelle fiche HSE.
-    Ventile les données dans form_submissions et ses tables enfants,
-    puis déclenche le recalcul des KPIs en arrière-plan.
+    Ventile les données dans la table mère 'form_submissions' et ses tables filles spécialisées,
+    puis déclenche le recalcul des indicateurs KPIs en tâche de fond asynchrone.
+
+    Args:
+        audit_in (HSEAuditCreate): Corps JSON validé de la soumission.
+        background_tasks (BackgroundTasks): Gestionnaire de tâches asynchrones FastAPI.
+        db (Session): Session BDD active.
+        current_user (User): Manager connecté auteur de la saisie.
+
+    Returns:
+        HSEAuditOut: Fiche enregistrée avec son identifiant généré.
     """
+    # Sauvegarde relationnelle et obtention de la structure reconstituée
     submission_data = SubmissionService.create_submission(
         db=db,
         audit_in=audit_in,
         user_id=current_user.id
     )
 
-    # 🚀 Déclenchement non-bloquant du recalcul des KPIs impactés
+    # Déclenchement non-bloquant du recalcul des KPIs impactés pour ce manager
     background_tasks.add_task(
         KPIService.recalculate_kpis_for_user,
         user_id=current_user.id
@@ -64,13 +77,13 @@ def create_audit(
     return submission_data
 
 
-# -----------------------------------------------------------------------------
-# 2. LECTURE & FILTRAGE DES SOUMISSIONS DU RESPONSABLE
-# -----------------------------------------------------------------------------
+# =============================================================================
+# 2. LECTURE ET FILTRAGE DES FORMULAIRES DU MANAGER
+# =============================================================================
 @router.get(
     "/",
     response_model=List[HSEAuditOut],
-    summary="Récupérer et filtrer la liste des audits du responsable"
+    summary="Récupérer et filtrer la liste des fiches du responsable connecté"
 )
 def get_user_audits(
     date_audit: Optional[str] = None,
@@ -82,8 +95,12 @@ def get_user_audits(
     current_user: User = Depends(get_current_user)
 ) -> Any:
     """
-    [READ ALL & FILTER] Retourne les fiches réalisées par le responsable connecté
-    avec filtres dynamiques (date, form_type, secteur/intervenants).
+    [READ ALL & FILTER] Retourne l'historique complet des fiches réalisées par le manager.
+    Supporte les filtres combinables :
+      - `date_audit` : Date exacte (YYYY-MM-DD).
+      - `date_from` / `date_to` : Intervalle chronologique.
+      - `form_type` : Catégorie ('audit_hse', 'tournee_hse', 'permis_travail', etc.).
+      - `secteur` : Recherche textuelle dans le secteur ou les intervenants.
     """
     return SubmissionService.get_all_submissions(
         db=db,
@@ -96,31 +113,33 @@ def get_user_audits(
     )
 
 
-# -----------------------------------------------------------------------------
-# 3. STATISTIQUES GLOBALES POUR LE DASHBOARD
-# -----------------------------------------------------------------------------
+# =============================================================================
+# 3. STATISTIQUES CONSOLIDÉES POUR LE TABLEAU DE BORD
+# =============================================================================
 @router.get(
     "/stats",
     response_model=HSEAuditStats,
-    summary="Obtenir les statistiques globales des audits"
+    summary="Obtenir les indicateurs statistiques consolidés"
 )
 def get_audit_stats(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ) -> Any:
     """
-    [READ STATS] Retourne instantanément les KPIs pré-calculés depuis kpi_snapshots.
+    [READ STATS] Fournit un résumé chiffré instantané (total audits, taux moyen de conformité,
+    répartition des actions : soldées, non engagées, en cours, en retard).
+    Lit en priorité la table de cache `kpi_snapshots`.
     """
     return KPIService.get_user_stats(db=db, user_id=current_user.id)
 
 
-# -----------------------------------------------------------------------------
-# 4. CONSULTATION D'UNE FICHE PAR SON IDENTIFIANT
-# -----------------------------------------------------------------------------
+# =============================================================================
+# 4. CONSULTATION DÉTAILLÉE D'UNE FICHE PAR SON IDENTIFIANT
+# =============================================================================
 @router.get(
     "/{audit_id}",
     response_model=HSEAuditOut,
-    summary="Récupérer un audit par son ID"
+    summary="Consulter le détail complet d'un formulaire par son ID"
 )
 def get_audit_by_id(
     audit_id: int,
@@ -128,8 +147,8 @@ def get_audit_by_id(
     current_user: User = Depends(get_current_user)
 ) -> Any:
     """
-    [READ ONE] Récupère le détail complet d'une fiche avec reconstitution
-    automatique du dictionnaire items_data.
+    [READ ONE] Récupère une fiche avec son arborescence de questions, constats et photos.
+    Vérifie que la fiche appartient bien au manager connecté.
     """
     return SubmissionService.get_submission_by_id(
         db=db,
@@ -138,13 +157,13 @@ def get_audit_by_id(
     )
 
 
-# -----------------------------------------------------------------------------
+# =============================================================================
 # 5. MODIFICATION D'UNE FICHE EXISTANTE
-# -----------------------------------------------------------------------------
+# =============================================================================
 @router.put(
     "/{audit_id}",
     response_model=HSEAuditOut,
-    summary="Mettre à jour un audit existant"
+    summary="Mettre à jour les données ou actions d'un audit existant"
 )
 def update_audit(
     audit_id: int,
@@ -154,8 +173,8 @@ def update_audit(
     current_user: User = Depends(get_current_user)
 ) -> Any:
     """
-    [UPDATE] Met à jour les informations ou les constats/actions d'une fiche.
-    Déclenche le recalcul des KPIs pour refléter les nouveaux statuts d'action.
+    [UPDATE] Met à jour les métadonnées ou le statut des actions correctives.
+    Déclenche en tâche de fond le recalcul des KPIs pour actualiser les graphiques.
     """
     updated_data = SubmissionService.update_submission(
         db=db,
@@ -164,7 +183,7 @@ def update_audit(
         user_id=current_user.id
     )
 
-    # 🚀 Recalcul en arrière-plan
+    # Recalcul asynchrone des indicateurs du dashboard
     background_tasks.add_task(
         KPIService.recalculate_kpis_for_user,
         user_id=current_user.id
@@ -173,13 +192,13 @@ def update_audit(
     return updated_data
 
 
-# -----------------------------------------------------------------------------
+# =============================================================================
 # 6. SUPPRESSION D'UNE FICHE
-# -----------------------------------------------------------------------------
+# =============================================================================
 @router.delete(
     "/{audit_id}",
     status_code=status.HTTP_200_OK,
-    summary="Supprimer un audit par son ID"
+    summary="Supprimer définitivement un formulaire par son ID"
 )
 def delete_audit(
     audit_id: int,
@@ -188,8 +207,8 @@ def delete_audit(
     current_user: User = Depends(get_current_user)
 ) -> Any:
     """
-    [DELETE] Supprime définitivement une fiche et ses items en cascade.
-    Déclenche le recalcul des KPIs après suppression.
+    [DELETE] Supprime définitivement la fiche et ses lignes d'évaluation en cascade.
+    Met à jour les indicateurs du dashboard après suppression.
     """
     SubmissionService.delete_submission(
         db=db,
@@ -197,7 +216,7 @@ def delete_audit(
         user_id=current_user.id
     )
 
-    # 🚀 Recalcul en arrière-plan
+    # Recalcul en arrière-plan pour déduire la fiche supprimée des statistiques
     background_tasks.add_task(
         KPIService.recalculate_kpis_for_user,
         user_id=current_user.id

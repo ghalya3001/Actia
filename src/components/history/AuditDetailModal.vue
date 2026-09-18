@@ -1,13 +1,41 @@
+<!--
+  =============================================================================
+  Composant : AuditDetailModal.vue
+  Description : Fenêtre modale d'affichage détaillé pour la consultation approfondie
+                d'un formulaire HSE (Audit HSE, Tournée HSE, Permis de Travail,
+                Statistiques Annuelles SST).
+  Fonctionnalités :
+    - Détection automatique du type de formulaire via propriétés calculées
+    - Vue dédiée aux Statistiques SST (Cartes récapitulatives + Tableau des 12 mois + Indicateurs TF/IF/TG/IG)
+    - Vue dédiée aux Permis de travail (Plans de prévention, Permis feu / hauteur)
+    - Vue dédiée aux Audits/Tournées (Score de conformité, statut des actions correctives)
+    - Bouton d'impression directe du rapport
+  =============================================================================
+-->
 <script setup>
 import { computed } from 'vue'
 import { X, Printer } from 'lucide-vue-next'
 
+// Propriétés d'entrée :
+// - audit : Objet complet contenant les métadonnées et données structurées (items_data) de la fiche
 const props = defineProps(['audit'])
+
+// Événements émis vers le composant parent :
+// - close : Fermeture de la modale de détails
+// - print : Déclenchement de l'aperçu avant impression pour la fiche active
 const emit = defineEmits(['close', 'print'])
 
+// --- DÉTECTION DU TYPE DE FORMULAIRE ---
+// Détermine s'il s'agit d'un permis de travail
 const isPermis = computed(() => props.audit?.form_type === 'permis_travail' || props.audit?.reference === 'FGSI-PERMIS')
+// Détermine s'il s'agit d'une tournée HSE de sécurité
 const isTournee = computed(() => props.audit?.form_type === 'tournee_hse' || (props.audit?.reference && props.audit?.reference.includes('FGSI-010')))
+// Détermine s'il s'agit du suivi annuel des accidents et statistiques de santé
 const isStatAccidents = computed(() => props.audit?.form_type === 'statistiques_accidents' || props.audit?.reference === 'FGSI-STAT-ACCIDENTS')
+
+/**
+ * Libellé officiel complet affiché dans l'en-tête selon le type détecté
+ */
 const refTitle = computed(() => {
   if (isStatAccidents.value) return 'Statistiques Accidents & Santé (FGSI-STAT-ACCIDENTS)'
   if (isPermis.value) return 'Permis de Travail (FGSI-PERMIS)'
@@ -15,13 +43,21 @@ const refTitle = computed(() => {
   return 'Audit HSE (FGSI-001-Ind:F)'
 })
 
+// Accès direct et sécurisé au contenu JSON stocké dans items_data
 const items = computed(() => props.audit?.items_data || {})
+
+// Liste ordonnée des 12 mois de l'année pour l'affichage de la grille SST
 const monthsList = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']
 </script>
 
 <template>
+  <!-- Conteneur overlay modalisé (actif seulement si un audit est sélectionné) -->
   <div v-if="audit" class="modal-overlay">
     <div class="modal-card-large" style="max-width: 95vw; max-height: 90vh; overflow-y: auto;">
+      
+      <!-- ======================================================================= -->
+      <!-- EN-TÊTE DE LA MODALE : Titre, Référence CIPI ACTIA, Bouton Fermer      -->
+      <!-- ======================================================================= -->
       <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(0,201,150,0.2); padding-bottom: 1rem; margin-bottom: 1.5rem;">
         <div>
           <h2 style="font-size: 1.3rem; font-weight: 800; color: #fff;">Détail Fiche #ACTIA-{{ audit.id }}</h2>
@@ -29,27 +65,40 @@ const monthsList = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juil
             CIPI ACTIA · {{ refTitle }} | Secteur : {{ audit.secteur }} | Date : {{ audit.date_audit }}
           </div>
         </div>
+        <!-- Bouton croix pour fermer -->
         <button @click="emit('close')" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer;"><X :size="24" /></button>
       </div>
 
-      <!-- STATISTIQUES ACCIDENTS VIEW -->
+      <!-- ======================================================================= -->
+      <!-- CAS 1 : VUE STATISTIQUES ACCIDENTS & SANTÉ AU TRAVAIL                   -->
+      <!-- ======================================================================= -->
       <div v-if="isStatAccidents">
+        
+        <!-- Cartes récapitulatives annuelles (Totaux, Jours d'arrêt, Heures, Visites) -->
         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 1.5rem;">
+          
+          <!-- Carte 1 : Total Accidents -->
           <div style="background: rgba(0,24,32,0.8); border: 1px solid var(--card-border); padding: 14px; border-radius: 10px; text-align: center; border-top: 3px solid #f59e0b;">
             <div style="font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase;">Total Accidents</div>
             <div style="font-size: 1.6rem; font-weight: 800; color: #fbbf24; font-family: var(--font-mono); margin-top: 4px;">{{ items.totaux?.nb_accidents_total ?? 0 }}</div>
             <div style="font-size: 0.75rem; color: var(--text-muted);">{{ items.totaux?.nb_accidents_avec_arret ?? 0 }} avec arrêt / {{ items.totaux?.nb_accidents_sans_arret ?? 0 }} sans arrêt</div>
           </div>
+
+          <!-- Carte 2 : Jours d'Arrêt Cumulés -->
           <div style="background: rgba(0,24,32,0.8); border: 1px solid var(--card-border); padding: 14px; border-radius: 10px; text-align: center; border-top: 3px solid #ef4444;">
             <div style="font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase;">Jours d'Arrêt Total</div>
             <div style="font-size: 1.6rem; font-weight: 800; color: #f87171; font-family: var(--font-mono); margin-top: 4px;">{{ items.totaux?.nb_jours_arret ?? 0 }}</div>
             <div style="font-size: 0.75rem; color: var(--text-muted);">Jours perdus cumulés</div>
           </div>
+
+          <!-- Carte 3 : Heures Travaillées Année -->
           <div style="background: rgba(0,24,32,0.8); border: 1px solid var(--card-border); padding: 14px; border-radius: 10px; text-align: center; border-top: 3px solid #3b82f6;">
             <div style="font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase;">Heures Travaillées</div>
             <div style="font-size: 1.6rem; font-weight: 800; color: #60a5fa; font-family: var(--font-mono); margin-top: 4px;">{{ (items.totaux?.nb_heures_travaillees ?? 0).toLocaleString() }}</div>
             <div style="font-size: 0.75rem; color: var(--text-muted);">Année {{ items.annee || audit.secteur }}</div>
           </div>
+
+          <!-- Carte 4 : Visites Médicales & Maladies Professionnelles -->
           <div style="background: rgba(0,24,32,0.8); border: 1px solid var(--card-border); padding: 14px; border-radius: 10px; text-align: center; border-top: 3px solid #10b981;">
             <div style="font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase;">Visites Médicales</div>
             <div style="font-size: 1.6rem; font-weight: 800; color: #34d399; font-family: var(--font-mono); margin-top: 4px;">{{ items.totaux?.nb_visites_medicales ?? 0 }}</div>
@@ -57,7 +106,7 @@ const monthsList = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juil
           </div>
         </div>
 
-        <!-- 12-Month Table -->
+        <!-- Tableau détaillé mensuel (12 mois + Colonne Total) -->
         <div style="overflow-x: auto; background: rgba(0,24,32,0.9); border: 1px solid var(--card-border); border-radius: 10px; padding: 12px; margin-bottom: 1.5rem;">
           <table style="width: 100%; border-collapse: collapse; font-size: 0.78rem; text-align: center;">
             <thead>
@@ -68,52 +117,62 @@ const monthsList = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juil
               </tr>
             </thead>
             <tbody>
+              <!-- Ligne 1 : Nombre total d'accidents de travail -->
               <tr style="border-bottom: 1px solid rgba(255,255,255,0.06); font-weight: 800; background: rgba(0,201,150,0.08);">
                 <td style="padding: 8px; text-align: left;">1. Nbr accident de travail (Total)</td>
                 <td v-for="m in monthsList" :key="m" style="padding: 6px;">{{ items.mois?.[m]?.nb_accidents_total ?? 0 }}</td>
                 <td style="padding: 8px; font-weight: 800; color: var(--color-primary);">{{ items.totaux?.nb_accidents_total ?? 0 }}</td>
               </tr>
+              <!-- Ligne 2 : Accidents avec arrêt -->
               <tr style="border-bottom: 1px solid rgba(255,255,255,0.06);">
                 <td style="padding: 8px; text-align: left;">2. Nombre d'accident avec arrêt</td>
                 <td v-for="m in monthsList" :key="m" style="padding: 6px;">{{ items.mois?.[m]?.nb_accidents_avec_arret ?? 0 }}</td>
                 <td style="padding: 8px; font-weight: 800;">{{ items.totaux?.nb_accidents_avec_arret ?? 0 }}</td>
               </tr>
+              <!-- Ligne 3 : Accidents sans arrêt -->
               <tr style="border-bottom: 1px solid rgba(255,255,255,0.06);">
                 <td style="padding: 8px; text-align: left;">3. Nombre d'accident sans arrêt</td>
                 <td v-for="m in monthsList" :key="m" style="padding: 6px;">{{ items.mois?.[m]?.nb_accidents_sans_arret ?? 0 }}</td>
                 <td style="padding: 8px; font-weight: 800;">{{ items.totaux?.nb_accidents_sans_arret ?? 0 }}</td>
               </tr>
+              <!-- Ligne 4 : Jours d'arrêt de travail -->
               <tr style="border-bottom: 1px solid rgba(255,255,255,0.06); background: rgba(253,224,71,0.08);">
                 <td style="padding: 8px; text-align: left;">4. Nombre de jours d'arrêt de travail</td>
                 <td v-for="m in monthsList" :key="m" style="padding: 6px;">{{ items.mois?.[m]?.nb_jours_arret ?? 0 }}</td>
                 <td style="padding: 8px; font-weight: 800;">{{ items.totaux?.nb_jours_arret ?? 0 }}</td>
               </tr>
+              <!-- Ligne 5 : Effectif moyen des salariés -->
               <tr style="border-bottom: 1px solid rgba(255,255,255,0.06);">
                 <td style="padding: 8px; text-align: left;">5. Effectif moyen (Salariés)</td>
                 <td v-for="m in monthsList" :key="m" style="padding: 6px;">{{ items.mois?.[m]?.nb_salaries ?? 0 }}</td>
                 <td style="padding: 8px; font-weight: 800;">—</td>
               </tr>
+              <!-- Ligne 6 : Heures travaillées -->
               <tr style="border-bottom: 1px solid rgba(255,255,255,0.06); background: rgba(253,224,71,0.08);">
                 <td style="padding: 8px; text-align: left;">6. Nombre d'heures travaillées</td>
                 <td v-for="m in monthsList" :key="m" style="padding: 6px;">{{ items.mois?.[m]?.nb_heures_travaillees ?? 0 }}</td>
                 <td style="padding: 8px; font-weight: 800;">{{ items.totaux?.nb_heures_travaillees ?? 0 }}</td>
               </tr>
+              <!-- Ligne 7 : Visites médicales -->
               <tr style="border-bottom: 1px solid rgba(255,255,255,0.06); background: rgba(253,224,71,0.08);">
                 <td style="padding: 8px; text-align: left;">7. Nombre de visites médicales</td>
                 <td v-for="m in monthsList" :key="m" style="padding: 6px;">{{ items.mois?.[m]?.nb_visites_medicales ?? 0 }}</td>
                 <td style="padding: 8px; font-weight: 800;">{{ items.totaux?.nb_visites_medicales ?? 0 }}</td>
               </tr>
+              <!-- Ligne 8 : Maladies professionnelles -->
               <tr style="border-bottom: 1px solid rgba(255,255,255,0.06); background: rgba(253,224,71,0.08);">
                 <td style="padding: 8px; text-align: left;">8. Nombre de maladies professionnelles</td>
                 <td v-for="m in monthsList" :key="m" style="padding: 6px;">{{ items.mois?.[m]?.nb_maladies_professionnelles ?? 0 }}</td>
                 <td style="padding: 8px; font-weight: 800;">{{ items.totaux?.nb_maladies_professionnelles ?? 0 }}</td>
               </tr>
-              <!-- INDICATORS TF / IF / TG / IG -->
+              <!-- INDICATEURS DE PERFORMANCE SST : TF / IF / TG / IG -->
+              <!-- Taux de Fréquence TF -->
               <tr style="border-top: 2px solid rgba(0,201,150,0.3); font-weight: 700; color: #38bdf8;">
                 <td style="padding: 8px; text-align: left;">Taux de Fréquence (TF)</td>
                 <td v-for="m in monthsList" :key="m" style="padding: 6px;">{{ items.mois?.[m]?.tf ?? 0 }}</td>
                 <td style="padding: 8px; font-weight: 800;">{{ items.totaux?.tf_moyen ?? 0 }}</td>
               </tr>
+              <!-- Indice de Fréquence IF (Alerte si > cible 2.5) -->
               <tr style="font-weight: 700; color: #a855f7;">
                 <td style="padding: 8px; text-align: left;">Indice de Fréquence (IF) [Cible: 2.5]</td>
                 <td v-for="m in monthsList" :key="m" :style="{ padding: '6px', color: (items.mois?.[m]?.if_val || 0) > 2.5 ? '#ef4444' : '#10b981' }">
@@ -123,11 +182,13 @@ const monthsList = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juil
                   {{ items.totaux?.if_moyen ?? 0 }}
                 </td>
               </tr>
+              <!-- Taux de Gravité TG -->
               <tr style="font-weight: 700; color: #f97316;">
                 <td style="padding: 8px; text-align: left;">Taux de Gravité (TG)</td>
                 <td v-for="m in monthsList" :key="m" style="padding: 6px;">{{ items.mois?.[m]?.tg ?? 0 }}</td>
                 <td style="padding: 8px; font-weight: 800;">{{ items.totaux?.tg_moyen ?? 0 }}</td>
               </tr>
+              <!-- Indice de Gravité IG -->
               <tr style="font-weight: 700; color: #ec4899;">
                 <td style="padding: 8px; text-align: left;">Indice de Gravité (IG)</td>
                 <td v-for="m in monthsList" :key="m" style="padding: 6px;">{{ items.mois?.[m]?.ig ?? 0 }}</td>
@@ -138,38 +199,51 @@ const monthsList = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juil
         </div>
       </div>
 
+      <!-- ======================================================================= -->
+      <!-- CAS 2 : VUE PERMIS DE TRAVAIL                                          -->
+      <!-- ======================================================================= -->
       <div v-else-if="isPermis">
         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 1.5rem;">
+          <!-- Compteur Plans de Prévention -->
           <div style="background: rgba(0,24,32,0.8); border: 1px solid var(--card-border); padding: 16px; border-radius: 10px; text-align: center; border-top: 3px solid #3b82f6;">
             <div style="font-size: 0.75rem; color: var(--text-dim); text-transform: uppercase;">Plan de Prévention</div>
             <div style="font-size: 1.8rem; font-weight: 800; color: #60a5fa; font-family: var(--font-mono); margin-top: 4px;">{{ items.plan_prevention || 0 }}</div>
           </div>
+          <!-- Compteur Permis Travail en Hauteur -->
           <div style="background: rgba(0,24,32,0.8); border: 1px solid var(--card-border); padding: 16px; border-radius: 10px; text-align: center; border-top: 3px solid #ea580c;">
             <div style="font-size: 0.75rem; color: var(--text-dim); text-transform: uppercase;">Permis Travail Hauteur</div>
             <div style="font-size: 1.8rem; font-weight: 800; color: #fb923c; font-family: var(--font-mono); margin-top: 4px;">{{ items.permis_hauteur || 0 }}</div>
           </div>
+          <!-- Compteur Permis de Feu -->
           <div style="background: rgba(0,24,32,0.8); border: 1px solid var(--card-border); padding: 16px; border-radius: 10px; text-align: center; border-top: 3px solid #dc2626;">
             <div style="font-size: 0.75rem; color: var(--text-dim); text-transform: uppercase;">Permis de Feu</div>
             <div style="font-size: 1.8rem; font-weight: 800; color: #f87171; font-family: var(--font-mono); margin-top: 4px;">{{ items.permis_feu || 0 }}</div>
           </div>
         </div>
 
+        <!-- Remarques spécifiques aux permis -->
         <div v-if="items.remarques" style="background: rgba(0,24,32,0.8); border: 1px solid var(--card-border); padding: 12px 16px; border-radius: 10px; border-left: 4px solid #3b82f6; margin-bottom: 1rem;">
           <div style="font-size: 0.78rem; font-weight: 700; color: #60a5fa; text-transform: uppercase; margin-bottom: 4px;">Remarques spécifiques Permis :</div>
           <div style="font-size: 0.9rem; color: var(--text-main); line-height: 1.5;">{{ items.remarques }}</div>
         </div>
       </div>
       
+      <!-- ======================================================================= -->
+      <!-- CAS 3 : VUE AUDITS HSE & TOURNÉES DE SÉCURITÉ                          -->
+      <!-- ======================================================================= -->
       <div v-else>
         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 1.5rem;">
+          <!-- Taux global de conformité -->
           <div style="background: rgba(0,24,32,0.8); border: 1px solid var(--card-border); padding: 12px; border-radius: 10px; text-align: center;">
             <div style="font-size: 0.75rem; color: var(--text-dim); text-transform: uppercase;">Taux de Conformité</div>
             <div style="font-size: 1.8rem; font-weight: 800; color: var(--color-primary); font-family: var(--font-mono);">{{ audit.taux_conformite }} %</div>
           </div>
+          <!-- Décompte des conformités (Conforme, Non-Conforme, N/A) -->
           <div style="background: rgba(0,24,32,0.8); border: 1px solid var(--card-border); padding: 12px; border-radius: 10px; text-align: center;">
             <div style="font-size: 0.75rem; color: var(--text-dim); text-transform: uppercase;">Évaluations</div>
             <div style="font-size: 1rem; font-weight: 700; color: #fff; margin-top: 6px;">{{ audit.total_conforme }} ✓ / {{ audit.total_non_conforme }} ✗ / {{ audit.total_na }} N/A</div>
           </div>
+          <!-- Décompte des actions correctives engagées -->
           <div style="background: rgba(0,24,32,0.8); border: 1px solid var(--card-border); padding: 12px; border-radius: 10px; text-align: center;">
             <div style="font-size: 0.75rem; color: var(--text-dim); text-transform: uppercase;">Actions Correctives</div>
             <div style="font-size: 1rem; font-weight: 700; color: var(--color-accent-light); margin-top: 6px;">{{ audit.count_soldee }} Soldée · {{ audit.count_en_cours }} En cours</div>
@@ -177,15 +251,24 @@ const monthsList = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juil
         </div>
       </div>
 
+      <!-- ======================================================================= -->
+      <!-- COMMENTAIRES GÉNÉRAUX COMMUMS                                           -->
+      <!-- ======================================================================= -->
       <div v-if="audit.commentaires_generaux" style="background: rgba(0,24,32,0.8); border: 1px solid var(--card-border); padding: 12px 16px; border-radius: 10px; border-left: 4px solid var(--color-primary); margin-bottom: 1.5rem;">
         <div style="font-size: 0.78rem; font-weight: 700; color: var(--color-primary); text-transform: uppercase; margin-bottom: 4px;">Commentaires généraux :</div>
         <div style="font-size: 0.9rem; color: var(--text-main); line-height: 1.5;">{{ audit.commentaires_generaux }}</div>
       </div>
 
+      <!-- ======================================================================= -->
+      <!-- PIED DE PAGE : Actions d'impression et de fermeture                    -->
+      <!-- ======================================================================= -->
       <div style="display: flex; justify-content: flex-end; gap: 12px; border-top: 1px solid rgba(0,201,150,0.2); padding-top: 1rem;">
+        <!-- Bouton Imprimer -->
         <button class="btn btn-secondary" @click="emit('print', audit)"><Printer :size="16"/> Imprimer la Fiche</button>
+        <!-- Bouton Fermer -->
         <button class="btn btn-primary" @click="emit('close')">Fermer</button>
       </div>
     </div>
   </div>
 </template>
+
