@@ -156,10 +156,10 @@ const loadUserProfile = async (authToken) => {
 }
 
 /**
- * Récupère l'historique complet des soumissions de formulaires depuis le backend.
+ * Récupère l'historique complet des soumissions de formulaires depuis le backend (ADMIN UNIQUEMENT).
  */
 const fetchAuditsHistory = async () => {
-  if (!token.value || user.value?.status !== 'APPROVED') return
+  if (!token.value || user.value?.status !== 'APPROVED' || user.value?.role !== 'ADMIN') return
   try {
     const res = await fetch(`${API_AUDITS}/`, {
       headers: { 'Authorization': `Bearer ${token.value}` }
@@ -179,9 +179,9 @@ watch(token, (newToken) => {
   }
 }, { immediate: true })
 
-// Rafraîchit l'historique quand l'utilisateur navigue vers les pages 'historique' ou 'home'
+// Rafraîchit l'historique quand l'administrateur navigue vers la page 'historique'
 watch([token, currentPage], ([t, page]) => {
-  if (t && (page === 'historique' || page === 'home') && user.value?.status === 'APPROVED') {
+  if (t && page === 'historique' && user.value?.role === 'ADMIN' && user.value?.status === 'APPROVED') {
     fetchAuditsHistory()
   }
 })
@@ -232,8 +232,8 @@ const handleOpenWizard = (formType, auditToEdit = null) => {
  * @param {string} page - Nom de la page cible.
  */
 const handleNavigate = (page) => {
-  // Garde client RBAC : les formulaires et la gestion utilisateurs sont réservés au rôle ADMIN
-  if ((page === 'admin-users' || page === 'formulaire') && user.value?.role !== 'ADMIN') {
+  // Garde client RBAC : les formulaires, l'historique et la gestion utilisateurs sont réservés au rôle ADMIN
+  if ((page === 'admin-users' || page === 'formulaire' || page === 'historique') && user.value?.role !== 'ADMIN') {
     showToast('Accès refusé : Privilèges Administrateur requis.', 'error')
     currentPage.value = 'home'
     wizardMode.value = false
@@ -245,7 +245,7 @@ const handleNavigate = (page) => {
 
 // Surveillance des droits pour redirection automatique immédiate si le rôle change ou est restreint
 watch([currentPage, user], ([newPage, newUser]) => {
-  if (newUser && newUser.role !== 'ADMIN' && (newPage === 'formulaire' || newPage === 'admin-users')) {
+  if (newUser && newUser.role !== 'ADMIN' && (newPage === 'formulaire' || newPage === 'admin-users' || newPage === 'historique')) {
     currentPage.value = 'home'
     wizardMode.value = false
   }
@@ -375,8 +375,8 @@ const handleExecuteDelete = async () => {
           />
         </div>
 
-        <!-- 3. Page Historique : Tableau de bord de recherche et filtrage centralisé -->
-        <div v-if="currentPage === 'historique'" class="page-anim">
+        <!-- 3. Page Historique : Tableau de bord de recherche et filtrage centralisé (ADMIN UNIQUEMENT) -->
+        <div v-if="currentPage === 'historique' && user?.role === 'ADMIN'" class="page-anim">
           <HistoryTable
             :audits="auditsList"
             :user="user"

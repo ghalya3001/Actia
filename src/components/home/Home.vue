@@ -61,9 +61,8 @@ const visibleActionCards = computed(() => {
     ];
   }
 
-  // Pour un simple utilisateur (USER) : consultation seule de l'historique et du dashboard
+  // Pour un simple utilisateur (USER) : accès limité au Dashboard HSE et à son Profil personnel
   return [
-    { id: 'historique', title: 'Historique Audits', subtitle: 'Consulter les fiches partagées', icon: Clock, bg: 'rgba(168,224,99,0.15)', color: 'var(--color-accent-light)' },
     { id: 'dashboard', title: 'Dashboard HSE', subtitle: 'Graphiques & KPIs usine', icon: LineChart, bg: 'rgba(59,130,246,0.15)', color: '#60a5fa' },
     { id: 'profile', title: 'Mon Profil', subtitle: 'Paramètres du compte', icon: User, bg: 'rgba(168,85,247,0.15)', color: '#c084fc' }
   ];

@@ -34,16 +34,16 @@ const navItems = computed(() => {
     { id: 'home', label: "Page d'Accueil", icon: Home }
   ]
 
-  // Seul le rôle ADMIN peut accéder à la saisie et gestion des Formulaires HSE
+  // Seuls les administrateurs (ADMIN) peuvent accéder aux Formulaires HSE et à l'Historique des Audits
   if (props.user?.role === 'ADMIN') {
-    items.push({ id: 'formulaire', label: 'Formulaires HSE', icon: FileEdit })
+    items.push(
+      { id: 'formulaire', label: 'Formulaires HSE', icon: FileEdit },
+      { id: 'historique', label: 'Historique Audits', icon: Clock }
+    )
   }
 
-  // Historique centralisé et Dashboard accessibles pour consultation à tous les utilisateurs (USER & ADMIN)
-  items.push(
-    { id: 'historique', label: 'Historique Audits', icon: Clock },
-    { id: 'dashboard', label: 'Dashboard HSE', icon: LineChart }
-  )
+  // Dashboard HSE accessible à tous les profils (USER et ADMIN)
+  items.push({ id: 'dashboard', label: 'Dashboard HSE', icon: LineChart })
 
   // Menu de gestion des utilisateurs réservé aux administrateurs (ADMIN)
   if (props.user?.role === 'ADMIN') {

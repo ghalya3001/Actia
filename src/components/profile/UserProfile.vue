@@ -774,15 +774,18 @@ const handleChangePassword = async () => {
                 <p class="perm-desc">Création et enregistrement des Audits HSE (FGSI-001), Tournées (FGSI-010), Permis de travail et Statistiques SST.</p>
               </div>
             </div>
-            <div class="perm-status-tag tag-granted">
-              <CheckCircle2 :size="14" /> Accès Autorisé
+            <div v-if="isAdmin" class="perm-status-tag tag-granted">
+              <CheckCircle2 :size="14" /> Accès Autorisé (ADMIN)
+            </div>
+            <div v-else class="perm-status-tag tag-locked">
+              <Lock :size="14" /> Réservé Administrateur
             </div>
           </div>
 
           <!-- Module 2 : Historique Centralisé -->
           <div class="perm-row">
             <div class="perm-info">
-              <div class="perm-icon-box box-teal">
+              <div class="perm-icon-box" :class="isAdmin ? 'box-teal' : 'box-gray'">
                 <Clock :size="18" />
               </div>
               <div>
@@ -790,8 +793,11 @@ const handleChangePassword = async () => {
                 <p class="perm-desc">Recherche multicritère, filtrage par date/secteur, consultation unitaire et impression de toutes les fiches d'usine.</p>
               </div>
             </div>
-            <div class="perm-status-tag tag-granted">
-              <CheckCircle2 :size="14" /> Accès Autorisé
+            <div v-if="isAdmin" class="perm-status-tag tag-granted">
+              <CheckCircle2 :size="14" /> Accès Autorisé (ADMIN)
+            </div>
+            <div v-else class="perm-status-tag tag-locked">
+              <Lock :size="14" /> Réservé Administrateur
             </div>
           </div>
 

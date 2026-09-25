@@ -92,7 +92,7 @@ def get_user_audits(
     form_type: Optional[str] = None,
     secteur: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_approved_user)
+    current_user: User = Depends(require_admin)
 ) -> Any:
     """
     [READ ALL & FILTER] Retourne l'historique centralisé de toutes les fiches de l'usine.
@@ -145,7 +145,7 @@ def get_audit_stats(
 def get_audit_by_id(
     audit_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_approved_user)
+    current_user: User = Depends(require_admin)
 ) -> Any:
     """
     [READ ONE] Récupère une fiche avec son arborescence de questions, constats et photos.
