@@ -23,7 +23,7 @@ from typing import List, Any, Optional
 from fastapi import APIRouter, Depends, status, BackgroundTasks
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, get_current_approved_user
+from app.api.deps import get_db, get_current_approved_user, require_admin
 from app.models.user import User
 from app.schemas.audit import HSEAuditCreate, HSEAuditUpdate, HSEAuditOut, HSEAuditStats
 from app.services.submission_service import SubmissionService
@@ -45,7 +45,7 @@ def create_audit(
     audit_in: HSEAuditCreate,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_approved_user)
+    current_user: User = Depends(require_admin)
 ) -> Any:
     """
     [CREATE] Enregistre une nouvelle fiche HSE.
@@ -171,7 +171,7 @@ def update_audit(
     audit_in: HSEAuditUpdate,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_approved_user)
+    current_user: User = Depends(require_admin)
 ) -> Any:
     """
     [UPDATE] Met à jour les métadonnées ou le statut des actions correctives.
@@ -205,7 +205,7 @@ def delete_audit(
     audit_id: int,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_approved_user)
+    current_user: User = Depends(require_admin)
 ) -> Any:
     """
     [DELETE] Supprime définitivement la fiche et ses lignes d'évaluation en cascade.

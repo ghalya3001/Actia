@@ -211,36 +211,56 @@ const handleLoginSuccess = async (t) => {
 }
 
 /**
- * Ouvre l'assistant de formulaire (Wizard) en mode création ou modification.
+ * Ouvre l'assistant de formulaire (Wizard) en mode création ou modification (ADMIN UNIQUEMENT).
  * @param {string} formType - Identifiant du formulaire ('audit_hse', 'tournee_hse', etc.).
  * @param {object|null} auditToEdit - Données de l'audit existant si modification.
  */
 const handleOpenWizard = (formType, auditToEdit = null) => {
+  if (user.value?.role !== 'ADMIN') {
+    showToast('Accès restreint : La saisie et modification des formulaires sont réservées aux administrateurs.', 'error')
+    currentPage.value = 'home'
+    wizardMode.value = false
+    return
+  }
   selectedFormType.value = auditToEdit ? (auditToEdit.form_type || 'audit_hse') : formType
   editingAudit.value = auditToEdit
   wizardMode.value = true
 }
 
 /**
- * Navigue vers une page donnée avec contrôle d'accès RBAC et réinitialise le mode Wizard.
+ * Navigue vers une page donnée avec contrôle d'accès RBAC strict et réinitialise le mode Wizard.
  * @param {string} page - Nom de la page cible.
  */
 const handleNavigate = (page) => {
-  // Garde client RBAC pour la page d'administration réservée au rôle ADMIN
-  if (page === 'admin-users' && user.value?.role !== 'ADMIN') {
+  // Garde client RBAC : les formulaires et la gestion utilisateurs sont réservés au rôle ADMIN
+  if ((page === 'admin-users' || page === 'formulaire') && user.value?.role !== 'ADMIN') {
     showToast('Accès refusé : Privilèges Administrateur requis.', 'error')
     currentPage.value = 'home'
+    wizardMode.value = false
     return
   }
   wizardMode.value = false
   currentPage.value = page
 }
 
+// Surveillance des droits pour redirection automatique immédiate si le rôle change ou est restreint
+watch([currentPage, user], ([newPage, newUser]) => {
+  if (newUser && newUser.role !== 'ADMIN' && (newPage === 'formulaire' || newPage === 'admin-users')) {
+    currentPage.value = 'home'
+    wizardMode.value = false
+  }
+})
+
 /**
- * Exécute l'appel API DELETE pour supprimer définitivement une fiche d'audit.
+ * Exécute l'appel API DELETE pour supprimer définitivement une fiche d'audit (ADMIN UNIQUEMENT).
  */
 const handleExecuteDelete = async () => {
   if (!deletingAudit.value) return
+  if (user.value?.role !== 'ADMIN') {
+    showToast('Action interdite : Seul un administrateur peut supprimer une fiche.', 'error')
+    deletingAudit.value = null
+    return
+  }
   try {
     const res = await fetch(`${API_AUDITS}/${deletingAudit.value.id}`, {
       method: 'DELETE',
@@ -250,6 +270,9 @@ const handleExecuteDelete = async () => {
       showToast(`Fiche #ACTIA-${deletingAudit.value.id} supprimée.`)
       deletingAudit.value = null
       fetchAuditsHistory()
+    } else {
+      const err = await res.json()
+      showToast(err.detail || 'Erreur lors de la suppression', 'error')
     }
   } catch (err) {
     showToast('Erreur lors de la suppression', 'error')
@@ -336,8 +359,8 @@ const handleExecuteDelete = async () => {
         <!-- 1. Page d'Accueil : vue d'ensemble et accès rapides -->
         <Home v-if="currentPage === 'home'" :user="user" @navigate="handleNavigate" />
 
-        <!-- 2. Page des Formulaires : Sélecteur de grille OU Assistant pas-à-pas -->
-        <div v-if="currentPage === 'formulaire'" class="page-anim">
+        <!-- 2. Page des Formulaires : Sélecteur de grille OU Assistant pas-à-pas (RÉSERVÉ ADMIN) -->
+        <div v-if="currentPage === 'formulaire' && user?.role === 'ADMIN'" class="page-anim">
           <FormSelector
             v-if="!wizardMode"
             @select-form="(type) => handleOpenWizard(type)"
@@ -356,10 +379,11 @@ const handleExecuteDelete = async () => {
         <div v-if="currentPage === 'historique'" class="page-anim">
           <HistoryTable
             :audits="auditsList"
+            :user="user"
             @refresh="fetchAuditsHistory"
             @view="(audit) => viewingAudit = audit"
-            @edit="(audit) => { currentPage = 'formulaire'; handleOpenWizard(audit.form_type, audit) }"
-            @delete="(audit) => deletingAudit = audit"
+            @edit="(audit) => { if (user?.role === 'ADMIN') { currentPage = 'formulaire'; handleOpenWizard(audit.form_type, audit) } }"
+            @delete="(audit) => { if (user?.role === 'ADMIN') { deletingAudit = audit } }"
             @print="(audit) => printingAudit = audit"
           />
         </div>

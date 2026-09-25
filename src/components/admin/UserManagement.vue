@@ -1028,7 +1028,7 @@ onMounted(() => {
           <div v-else class="role-callout callout-demote">
             <UserMinus :size="20" class="callout-icon text-amber" />
             <div class="callout-text text-amber">
-              <strong>Privilèges restreints :</strong> L'accès aux formulaires HSE, aux audits et à l'administration sera retiré. L'accès sera limité à l'Accueil, au Dashboard et à son Profil.
+              <strong>Privilèges restreints :</strong> L'accès aux formulaires HSE, à l'édition/suppression d'audits et à l'administration sera retiré. L'accès sera limité à l'Accueil, à la consultation de l'Historique, au Dashboard et à son Profil.
             </div>
           </div>
           <p class="modal-confirm-prompt">

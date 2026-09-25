@@ -31,7 +31,11 @@ import {
 
 // Propriétés reçues du composant parent :
 // - audits : Tableau complet des objets audits/formulaires récupérés depuis l'API backend
-const props = defineProps(['audits'])
+// - user : Profil utilisateur connecté avec son rôle RBAC
+const props = defineProps(['audits', 'user'])
+
+// Vérification de sécurité du rôle : Seul un ADMIN peut modifier ou supprimer des fiches
+const isAdmin = computed(() => props.user?.role === 'ADMIN')
 
 // Événements émis vers le parent :
 const emit = defineEmits(['refresh', 'view', 'edit', 'delete', 'print'])
@@ -352,13 +356,15 @@ const filteredAudits = computed(() => {
                   <button class="btn-tbl btn-tbl-view" @click="emit('view', audit)" title="Voir les détails complets">
                     <Eye :size="14"/> <span>Voir</span>
                   </button>
-                  <button class="btn-tbl btn-tbl-edit" @click="emit('edit', audit)" title="Modifier les données">
+                  <!-- Édition réservée exclusivement au rôle ADMIN -->
+                  <button v-if="isAdmin" class="btn-tbl btn-tbl-edit" @click="emit('edit', audit)" title="Modifier les données (ADMIN)">
                     <Pen :size="14"/> <span>Éditer</span>
                   </button>
                   <button class="btn-tbl btn-tbl-print" @click="emit('print', audit)" title="Générer le rapport imprimable">
                     <Printer :size="14"/> <span>Imprimer</span>
                   </button>
-                  <button class="btn-tbl btn-tbl-delete" @click="emit('delete', audit)" title="Supprimer la fiche">
+                  <!-- Suppression réservée exclusivement au rôle ADMIN -->
+                  <button v-if="isAdmin" class="btn-tbl btn-tbl-delete" @click="emit('delete', audit)" title="Supprimer la fiche (ADMIN)">
                     <Trash2 :size="14"/>
                   </button>
                 </div>

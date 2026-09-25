@@ -50,20 +50,23 @@ const rules = [
   { num: 10, text: 'Trier et trier correctement les <strong style="color: #fff">déchets dangereux</strong>.' }
 ];
 
-// Raccourcis d'accès rapide partagés et dynamiques selon le rôle RBAC
+// Raccourcis d'accès rapide stricts selon le rôle RBAC (ADMIN vs simple USER)
 const visibleActionCards = computed(() => {
-  const cards = [
-    { id: 'formulaire', title: 'Nouveau Formulaire', subtitle: 'Audit, Tournée & Permis', icon: FileEdit, bg: 'rgba(0,201,150,0.15)', color: 'var(--color-primary)' },
-    { id: 'historique', title: 'Historique Audits', subtitle: 'Consulter les fiches partagées', icon: Clock, bg: 'rgba(168,224,99,0.15)', color: 'var(--color-accent-light)' },
-    { id: 'dashboard', title: 'Dashboard HSE', subtitle: 'Graphiques & KPIs usine', icon: LineChart, bg: 'rgba(59,130,246,0.15)', color: '#60a5fa' }
-  ];
-
   if (props.user?.role === 'ADMIN') {
-    cards.push({ id: 'admin-users', title: 'Gestion Utilisateurs', subtitle: 'Validation & RBAC', icon: Users, bg: 'rgba(244,63,94,0.15)', color: '#f43f5e' });
-  } else {
-    cards.push({ id: 'profile', title: 'Mon Profil', subtitle: 'Paramètres du compte', icon: User, bg: 'rgba(168,85,247,0.15)', color: '#c084fc' });
+    return [
+      { id: 'formulaire', title: 'Nouveau Formulaire', subtitle: 'Audit, Tournée & Permis', icon: FileEdit, bg: 'rgba(0,201,150,0.15)', color: 'var(--color-primary)' },
+      { id: 'historique', title: 'Historique Audits', subtitle: 'Consulter & éditer les fiches', icon: Clock, bg: 'rgba(168,224,99,0.15)', color: 'var(--color-accent-light)' },
+      { id: 'dashboard', title: 'Dashboard HSE', subtitle: 'Graphiques & KPIs usine', icon: LineChart, bg: 'rgba(59,130,246,0.15)', color: '#60a5fa' },
+      { id: 'admin-users', title: 'Gestion Utilisateurs', subtitle: 'Validation & RBAC', icon: Users, bg: 'rgba(244,63,94,0.15)', color: '#f43f5e' }
+    ];
   }
-  return cards;
+
+  // Pour un simple utilisateur (USER) : consultation seule de l'historique et du dashboard
+  return [
+    { id: 'historique', title: 'Historique Audits', subtitle: 'Consulter les fiches partagées', icon: Clock, bg: 'rgba(168,224,99,0.15)', color: 'var(--color-accent-light)' },
+    { id: 'dashboard', title: 'Dashboard HSE', subtitle: 'Graphiques & KPIs usine', icon: LineChart, bg: 'rgba(59,130,246,0.15)', color: '#60a5fa' },
+    { id: 'profile', title: 'Mon Profil', subtitle: 'Paramètres du compte', icon: User, bg: 'rgba(168,85,247,0.15)', color: '#c084fc' }
+  ];
 });
 
 // Présentation des 3 piliers fondateurs
