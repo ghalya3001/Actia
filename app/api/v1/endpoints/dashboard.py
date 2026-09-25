@@ -18,14 +18,25 @@ Rôle :
 """
 
 from typing import List, Any, Optional, Dict
+from datetime import datetime, date
 from pydantic import BaseModel
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import or_
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+from sqlalchemy import or_, func, extract, and_
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, get_current_approved_user
 from app.models.user import User
 from app.models.dashboard import KPIDefinition, KPISnapshot, DashboardWidget
+from app.models.submission import (
+    FormSubmission,
+    AuditHSESubmission,
+    TourneeHSESubmission,
+    PermisTravailSubmission,
+    AccidentTravailSubmission,
+    AccidentTravailMonthlyItem,
+    AuditHSEItem,
+    TourneeHSEItem,
+)
 from app.services.kpi_service import KPIService
 
 router = APIRouter()
@@ -337,3 +348,400 @@ def delete_widget(
     db.delete(w)
     db.commit()
     return {"message": "Widget supprimé."}
+
+
+# =============================================================================
+# 8. ENDPOINT : STATISTIQUES CONSOLIDÉES DU DASHBOARD (DONNÉES RÉELLES BDD)
+# =============================================================================
+
+# Noms de mois en français pour les labels des graphiques
+MOIS_FR = [
+    "", "Janv", "Fév", "Mar", "Avr", "Mai", "Juin",
+    "Juil", "Août", "Sept", "Oct", "Nov", "Déc"
+]
+
+# Noms des 7 sections thématiques d'audit/tournée HSE
+SECTION_LABELS = {
+    1: "EPI & Tenue",
+    2: "ATEX / Élec",
+    3: "Incendie & Évac",
+    4: "Ergonomie",
+    5: "5S & Ordre",
+    6: "Produits Chimiques",
+    7: "Risques Machine",
+}
+
+
+class DashboardStatsOut(BaseModel):
+    """
+    Structure complète des données consolidées du dashboard HSE.
+    Alimentée depuis les tables réelles de la base de données.
+    """
+    # --- Filtres appliqués ---
+    filter_year: Optional[int] = None
+    filter_date_debut: Optional[str] = None
+    filter_date_fin: Optional[str] = None
+    available_years: List[int] = []
+
+    # --- Scorecards ---
+    total_audits: int = 0
+    avg_conformite: float = 0.0
+    actions_en_retard: int = 0
+    jours_sans_accident: int = 0
+    dernier_accident_date: Optional[str] = None
+
+    # TF du mois courant et variation
+    tf_courant: float = 0.0
+    tf_variation: float = 0.0
+    conformite_derniere_tournee: float = 0.0
+    conformite_variation: float = 0.0
+
+    # --- Graphique : Courbe mensuelle TF & IF ---
+    monthly_labels: List[str] = []
+    monthly_tf: List[float] = []
+    monthly_if: List[float] = []
+    target_tf: float = 2.5
+
+    # --- Graphique : Évolution conformité ---
+    conformite_labels: List[str] = []
+    conformite_values: List[float] = []
+
+    # --- Graphique : Radar thématique ---
+    radar_labels: List[str] = []
+    radar_scores: List[float] = []
+
+    # --- Graphique : Donut actions correctives ---
+    actions_soldee: int = 0
+    actions_en_cours: int = 0
+    actions_non_engagee: int = 0
+    actions_retard_count: int = 0
+
+    # --- Conformité par secteur ---
+    secteur_labels: List[str] = []
+    secteur_values: List[float] = []
+
+    # --- Tableau : Actions en retard détaillées ---
+    actions_retard_details: List[Dict[str, Any]] = []
+
+    # --- Permis de travail ---
+    total_permis: int = 0
+
+
+def _parse_date_audit(date_str: str) -> Optional[date]:
+    """Parse une date d'audit au format ISO (YYYY-MM-DD) ou DD/MM/YYYY."""
+    if not date_str:
+        return None
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(date_str, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+@router.get(
+    "/stats",
+    response_model=DashboardStatsOut,
+    summary="Obtenir les statistiques consolidées du dashboard avec filtres de date"
+)
+def get_dashboard_stats(
+    year: Optional[int] = Query(None, description="Filtrer par année (ex: 2026)"),
+    date_debut: Optional[str] = Query(None, description="Date de début au format YYYY-MM-DD"),
+    date_fin: Optional[str] = Query(None, description="Date de fin au format YYYY-MM-DD"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_approved_user)
+) -> Any:
+    """
+    Retourne l'ensemble des données consolidées du Dashboard HSE calculées
+    directement depuis les tables de la base de données.
+    Supporte 3 modes de filtrage combinables :
+      - Par année uniquement (year=2026)
+      - Par plage de dates (date_debut=2026-01-01&date_fin=2026-06-30)
+      - Par année + plage de dates
+    """
+    result = DashboardStatsOut(
+        filter_year=year,
+        filter_date_debut=date_debut,
+        filter_date_fin=date_fin,
+    )
+
+    # ------------------------------------------------------------------
+    # 0. Déterminer les années disponibles dans la base
+    # ------------------------------------------------------------------
+    all_submissions = db.query(FormSubmission).all()
+    all_accidents = db.query(AccidentTravailSubmission).all()
+    years_set = set()
+    for s in all_submissions:
+        d = _parse_date_audit(s.date_audit)
+        if d:
+            years_set.add(d.year)
+    for a in all_accidents:
+        if a.annee:
+            years_set.add(a.annee)
+    if not years_set:
+        years_set.add(datetime.now().year)
+    result.available_years = sorted(years_set, reverse=True)
+
+    # ------------------------------------------------------------------
+    # 1. Filtrer les soumissions selon les critères de date
+    # ------------------------------------------------------------------
+    has_date_filter = bool(year or date_debut or date_fin)
+    filtered_submissions = []
+    for s in all_submissions:
+        d = _parse_date_audit(s.date_audit)
+        if not d:
+            if not has_date_filter:
+                filtered_submissions.append(s)
+            continue
+        if year and d.year != year:
+            continue
+        if date_debut:
+            try:
+                dd = datetime.strptime(date_debut, "%Y-%m-%d").date()
+                if d < dd:
+                    continue
+            except ValueError:
+                pass
+        if date_fin:
+            try:
+                df = datetime.strptime(date_fin, "%Y-%m-%d").date()
+                if d > df:
+                    continue
+            except ValueError:
+                pass
+        filtered_submissions.append(s)
+
+    submission_ids = {s.id for s in filtered_submissions}
+
+    # ------------------------------------------------------------------
+    # 2. Scorecards : Total audits & Conformité moyenne
+    # ------------------------------------------------------------------
+    result.total_audits = len(filtered_submissions)
+    if result.total_audits > 0:
+        result.avg_conformite = round(
+            sum(s.taux_conformite for s in filtered_submissions) / result.total_audits, 1
+        )
+
+    # ------------------------------------------------------------------
+    # 3. Agrégation des actions correctives (audits + tournées filtrés)
+    # ------------------------------------------------------------------
+    audits = [s for s in filtered_submissions if s.form_type == "audit_hse"]
+    tournees = [s for s in filtered_submissions if s.form_type == "tournee_hse"]
+
+    # Récupérer les détails via les tables filles
+    audit_details = db.query(AuditHSESubmission).filter(
+        AuditHSESubmission.id.in_(submission_ids)
+    ).all() if submission_ids else []
+    tournee_details = db.query(TourneeHSESubmission).filter(
+        TourneeHSESubmission.id.in_(submission_ids)
+    ).all() if submission_ids else []
+
+    soldee = sum(a.count_soldee for a in audit_details) + sum(t.count_soldee for t in tournee_details)
+    non_engagee = sum(a.count_non_engagee for a in audit_details) + sum(t.count_non_engagee for t in tournee_details)
+    en_cours = sum(a.count_en_cours for a in audit_details) + sum(t.count_en_cours for t in tournee_details)
+    en_retard = sum(a.count_en_retard for a in audit_details) + sum(t.count_en_retard for t in tournee_details)
+
+    result.actions_soldee = soldee
+    result.actions_non_engagee = non_engagee
+    result.actions_en_cours = en_cours
+    result.actions_retard_count = en_retard
+    result.actions_en_retard = en_retard
+
+    # ------------------------------------------------------------------
+    # 4. Permis de travail (filtrés)
+    # ------------------------------------------------------------------
+    permis = db.query(PermisTravailSubmission).filter(
+        PermisTravailSubmission.id.in_(submission_ids)
+    ).all() if submission_ids else []
+    result.total_permis = sum(
+        p.nb_plan_prevention + p.nb_permis_hauteur + p.nb_permis_feu for p in permis
+    )
+
+    # ------------------------------------------------------------------
+    # 5. Courbe mensuelle TF & IF (depuis AccidentTravailMonthlyItem)
+    # ------------------------------------------------------------------
+    target_year = year or (datetime.now().year)
+    accident_subs = db.query(AccidentTravailSubmission).filter(
+        AccidentTravailSubmission.annee == target_year
+    ).all()
+
+    monthly_tf_map: Dict[int, float] = {}
+    monthly_if_map: Dict[int, float] = {}
+
+    for acc_sub in accident_subs:
+        for item in acc_sub.monthly_items:
+            m = item.mois_index
+            if m < 1 or m > 12:
+                continue
+            # Garder le dernier TF/IF disponible par mois
+            monthly_tf_map[m] = item.tf_valeur
+            monthly_if_map[m] = item.if_valeur
+
+    # Construire les labels et valeurs pour les mois qui ont des données
+    if monthly_tf_map:
+        max_month = max(monthly_tf_map.keys())
+        for m in range(1, max_month + 1):
+            result.monthly_labels.append(MOIS_FR[m])
+            result.monthly_tf.append(round(monthly_tf_map.get(m, 0.0), 2))
+            result.monthly_if.append(round(monthly_if_map.get(m, 0.0), 2))
+
+        # TF courant = dernier mois avec données
+        result.tf_courant = result.monthly_tf[-1] if result.monthly_tf else 0.0
+        if len(result.monthly_tf) >= 2:
+            result.tf_variation = round(result.monthly_tf[-1] - result.monthly_tf[-2], 2)
+
+    # Target TF depuis la soumission accident
+    if accident_subs:
+        result.target_tf = accident_subs[0].target_tf or 2.5
+
+    # ------------------------------------------------------------------
+    # 6. Jours sans accident (calculé depuis les données mensuelles)
+    # ------------------------------------------------------------------
+    today = date.today()
+    all_accident_subs = db.query(AccidentTravailSubmission).all()
+    last_accident_date = None
+
+    for acc_sub in all_accident_subs:
+        for item in sorted(acc_sub.monthly_items, key=lambda x: x.mois_index, reverse=True):
+            if item.nb_accidents_avec_arret > 0:
+                # Approximer la date au milieu du mois
+                try:
+                    d = date(acc_sub.annee, item.mois_index, 15)
+                    if last_accident_date is None or d > last_accident_date:
+                        last_accident_date = d
+                except ValueError:
+                    pass
+
+    if last_accident_date:
+        result.jours_sans_accident = (today - last_accident_date).days
+        result.dernier_accident_date = last_accident_date.strftime("%d/%m/%Y")
+    else:
+        # Si aucun accident enregistré, compter depuis la plus ancienne soumission
+        if all_submissions:
+            dates_parsed = [_parse_date_audit(s.date_audit) for s in all_submissions]
+            valid_dates = [d for d in dates_parsed if d]
+            if valid_dates:
+                oldest = min(valid_dates)
+                result.jours_sans_accident = (today - oldest).days
+                result.dernier_accident_date = "Aucun accident enregistré"
+
+    # ------------------------------------------------------------------
+    # 7. Évolution de la conformité (par date_audit triée)
+    # ------------------------------------------------------------------
+    dated_subs = []
+    for s in filtered_submissions:
+        d = _parse_date_audit(s.date_audit)
+        if d:
+            dated_subs.append((d, s.taux_conformite))
+    dated_subs.sort(key=lambda x: x[0])
+
+    # Grouper par semaine ou par soumission (limiter aux 10 dernières entrées)
+    if dated_subs:
+        last_entries = dated_subs[-10:]
+        for d, tc in last_entries:
+            result.conformite_labels.append(d.strftime("%d/%m"))
+            result.conformite_values.append(round(tc, 1))
+
+        # Conformité de la dernière tournée
+        result.conformite_derniere_tournee = last_entries[-1][1]
+        if len(last_entries) >= 2:
+            result.conformite_variation = round(
+                last_entries[-1][1] - last_entries[-2][1], 1
+            )
+
+    # ------------------------------------------------------------------
+    # 8. Radar des 7 thématiques HSE (agrégation par section_id)
+    # ------------------------------------------------------------------
+    section_scores: Dict[int, List[int]] = {i: [] for i in range(1, 8)}
+
+    # Items d'audit
+    audit_items = db.query(AuditHSEItem).filter(
+        AuditHSEItem.audit_id.in_(submission_ids)
+    ).all() if submission_ids else []
+    for item in audit_items:
+        sid = item.section_id
+        if 1 <= sid <= 7 and item.conformite >= 0:
+            section_scores[sid].append(item.conformite)
+
+    # Items de tournée
+    tournee_items = db.query(TourneeHSEItem).filter(
+        TourneeHSEItem.tournee_id.in_(submission_ids)
+    ).all() if submission_ids else []
+    for item in tournee_items:
+        sid = item.section_id
+        if 1 <= sid <= 7 and item.conformite >= 0:
+            section_scores[sid].append(item.conformite)
+
+    for sid in range(1, 8):
+        result.radar_labels.append(SECTION_LABELS.get(sid, f"Section {sid}"))
+        scores = section_scores[sid]
+        if scores:
+            result.radar_scores.append(round(sum(scores) / len(scores) * 100, 1))
+        else:
+            result.radar_scores.append(0.0)
+
+    # ------------------------------------------------------------------
+    # 9. Conformité par secteur (graphique barres)
+    # ------------------------------------------------------------------
+    secteur_map: Dict[str, List[float]] = {}
+    for s in filtered_submissions:
+        sec = s.secteur or "Autre"
+        secteur_map.setdefault(sec, []).append(s.taux_conformite)
+
+    for sec in sorted(secteur_map.keys()):
+        scores = secteur_map[sec]
+        result.secteur_labels.append(sec)
+        result.secteur_values.append(round(sum(scores) / len(scores), 1))
+
+    # ------------------------------------------------------------------
+    # 10. Tableau des actions en retard détaillées
+    # ------------------------------------------------------------------
+    retard_actions = []
+
+    # Items d'audit en retard
+    for item in audit_items:
+        if item.etat == "en_retard" and item.conformite == 0:
+            # Trouver la soumission parente
+            parent = next((s for s in filtered_submissions if s.id == item.audit_id), None)
+            delai_date = _parse_date_audit(item.delai) if item.delai else None
+            retard_jours = (today - delai_date).days if delai_date and delai_date < today else 0
+
+            retard_actions.append({
+                "id": item.id,
+                "ref": parent.reference if parent else "N/A",
+                "source": "Audit HSE (FGSI-001)",
+                "secteur": parent.secteur if parent else "N/A",
+                "constat": item.constat or "Non-conformité détectée",
+                "action": item.action_corrective or "Action à définir",
+                "responsable": item.responsable or "Non assigné",
+                "delai": item.delai or "Non défini",
+                "retardJours": retard_jours,
+                "priorite": "Critique" if retard_jours > 10 else ("Haute" if retard_jours > 5 else "Moyenne"),
+            })
+
+    # Items de tournée en retard
+    for item in tournee_items:
+        if item.etat == "en_retard" and item.conformite == 0:
+            parent = next((s for s in filtered_submissions if s.id == item.tournee_id), None)
+            delai_date = _parse_date_audit(item.delai) if item.delai else None
+            retard_jours = (today - delai_date).days if delai_date and delai_date < today else 0
+
+            retard_actions.append({
+                "id": item.id,
+                "ref": parent.reference if parent else "N/A",
+                "source": "Tournée HSE (FGSI-010)",
+                "secteur": parent.secteur if parent else "N/A",
+                "constat": item.constat or "Non-conformité détectée",
+                "action": item.action_corrective or "Action à définir",
+                "responsable": item.responsable or "Non assigné",
+                "delai": item.delai or "Non défini",
+                "retardJours": retard_jours,
+                "priorite": "Critique" if retard_jours > 10 else ("Haute" if retard_jours > 5 else "Moyenne"),
+            })
+
+    # Trier par nombre de jours de retard décroissant
+    retard_actions.sort(key=lambda x: x["retardJours"], reverse=True)
+    result.actions_retard_details = retard_actions
+
+    return result
+

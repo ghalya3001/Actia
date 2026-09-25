@@ -15,7 +15,7 @@
   =============================================================================
 -->
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import {
   ShieldCheck,
   AlertCircle,
@@ -96,7 +96,7 @@ const DEFAULT_CUSTOM_KPIS = [
   {
     id: 101,
     title: 'Croisement Accidents Avec Arrêt vs Sans Arrêt',
-    description: 'Comparatif mensuel des 2 types d’accidents de travail (Table 1 Accident_Travail)',
+    description: 'Comparatif mensuel des 2 types d\'accidents de travail (Table 1 Accident_Travail)',
     chartType: 'bar',
     periodicity: 'monthly',
     metrics: [
@@ -210,10 +210,183 @@ const DEFAULT_CUSTOM_KPIS = [
 // Liste réactive des KPIs personnalisés configurés
 const customKpis = ref([])
 
+// ============================================================================
+// 1. ÉTAT RÉACTIF — DONNÉES RÉELLES DEPUIS L'API BACKEND
+// ============================================================================
+
+// État de chargement
+const isLoading = ref(true)
+const isRefreshing = ref(false)
+const loadError = ref('')
+
+// Filtres de date
+const filterYear = ref(null)
+const filterDateDebut = ref('')
+const filterDateFin = ref('')
+const availableYears = ref([])
+
+// Scorecards
+const totalAudits = ref(0)
+const avgConformite = ref(0)
+const actionsEnRetard = ref(0)
+const joursSansAccident = ref(0)
+const dernierAccidentDate = ref('')
+const tfCourant = ref(0)
+const tfVariation = ref(0)
+const conformiteDerniereTournee = ref(0)
+const conformiteVariation = ref(0)
+const totalPermis = ref(0)
+
+// Donut actions
+const actionsSoldee = ref(0)
+const actionsEnCours = ref(0)
+const actionsNonEngagee = ref(0)
+const actionsRetardCount = ref(0)
+
+// Filtres du tableau opérationnel des actions
+const selectedSecteur = ref('all')
+const selectedResponsable = ref('all')
+const searchQuery = ref('')
+
+// Données graphiques réactives
+const monthlyLabels = ref([])
+const monthlyTF = ref([])
+const monthlyIF = ref([])
+const targetTF = ref(2.5)
+
+const conformiteLabels = ref([])
+const conformiteValues = ref([])
+
+const radarLabels = ref([])
+const radarScores = ref([])
+
+const secteurLabels = ref([])
+const secteurValues = ref([])
+
+// Actions en retard détaillées (depuis la BDD)
+const rawActionsEnRetard = ref([])
+
+// ============================================================================
+// 2. FONCTION : CHARGEMENT DES DONNÉES DEPUIS L'API /dashboard/stats
+// ============================================================================
+
+const API_BASE = 'http://127.0.0.1:8000/api/v1'
+
 /**
- * Au montage du composant : chargement des KPIs depuis le localStorage navigateur
+ * Récupère le token JWT depuis le localStorage
  */
-onMounted(() => {
+const getAuthHeaders = () => {
+  const token = localStorage.getItem('access_token')
+  return {
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json'
+  }
+}
+
+/**
+ * Charge toutes les données du dashboard depuis le backend
+ */
+const fetchDashboardStats = async () => {
+  try {
+    loadError.value = ''
+
+    // Construire les query params
+    const params = new URLSearchParams()
+    if (filterYear.value) params.append('year', filterYear.value)
+    if (filterDateDebut.value) params.append('date_debut', filterDateDebut.value)
+    if (filterDateFin.value) params.append('date_fin', filterDateFin.value)
+
+    const url = `${API_BASE}/dashboard/stats?${params.toString()}`
+    const response = await fetch(url, { headers: getAuthHeaders() })
+
+    if (!response.ok) {
+      throw new Error(`Erreur ${response.status}: ${response.statusText}`)
+    }
+
+    const data = await response.json()
+
+    // --- Scorecards ---
+    totalAudits.value = data.total_audits || 0
+    avgConformite.value = data.avg_conformite || 0
+    actionsEnRetard.value = data.actions_en_retard || 0
+    joursSansAccident.value = data.jours_sans_accident || 0
+    dernierAccidentDate.value = data.dernier_accident_date || ''
+    tfCourant.value = data.tf_courant || 0
+    tfVariation.value = data.tf_variation || 0
+    conformiteDerniereTournee.value = data.conformite_derniere_tournee || 0
+    conformiteVariation.value = data.conformite_variation || 0
+    totalPermis.value = data.total_permis || 0
+
+    // --- Années disponibles ---
+    availableYears.value = data.available_years || []
+
+    // --- Donut actions ---
+    actionsSoldee.value = data.actions_soldee || 0
+    actionsEnCours.value = data.actions_en_cours || 0
+    actionsNonEngagee.value = data.actions_non_engagee || 0
+    actionsRetardCount.value = data.actions_retard_count || 0
+
+    // --- Courbe TF & IF ---
+    monthlyLabels.value = data.monthly_labels || []
+    monthlyTF.value = data.monthly_tf || []
+    monthlyIF.value = data.monthly_if || []
+    targetTF.value = data.target_tf || 2.5
+
+    // --- Conformité évolution ---
+    conformiteLabels.value = data.conformite_labels || []
+    conformiteValues.value = data.conformite_values || []
+
+    // --- Radar thématique ---
+    radarLabels.value = data.radar_labels || []
+    radarScores.value = data.radar_scores || []
+
+    // --- Conformité par secteur ---
+    secteurLabels.value = data.secteur_labels || []
+    secteurValues.value = data.secteur_values || []
+
+    // --- Actions en retard ---
+    rawActionsEnRetard.value = data.actions_retard_details || []
+
+  } catch (err) {
+    console.error('[Dashboard] Erreur de chargement:', err)
+    loadError.value = err.message
+  }
+}
+
+/**
+ * Actualisation des données (bouton refresh)
+ */
+const handleRefreshSnapshots = async () => {
+  isRefreshing.value = true
+  await fetchDashboardStats()
+  isRefreshing.value = false
+  emit('showToast', 'Données du tableau de bord actualisées avec succès.')
+}
+
+/**
+ * Appliquer les filtres de date
+ */
+const applyDateFilters = async () => {
+  isLoading.value = true
+  await fetchDashboardStats()
+  isLoading.value = false
+}
+
+/**
+ * Réinitialiser les filtres de date
+ */
+const resetDateFilters = () => {
+  filterYear.value = null
+  filterDateDebut.value = ''
+  filterDateFin.value = ''
+  applyDateFilters()
+}
+
+/**
+ * Au montage du composant : chargement initial
+ */
+onMounted(async () => {
+  // Charger les KPIs personnalisés depuis le localStorage navigateur
   const saved = localStorage.getItem('actia_custom_kpis')
   if (saved) {
     try {
@@ -225,6 +398,10 @@ onMounted(() => {
     customKpis.value = [...DEFAULT_CUSTOM_KPIS]
     localStorage.setItem('actia_custom_kpis', JSON.stringify(DEFAULT_CUSTOM_KPIS))
   }
+
+  // Charger les données réelles du dashboard
+  await fetchDashboardStats()
+  isLoading.value = false
 })
 
 /**
@@ -246,36 +423,16 @@ const handleDeleteCustomKpi = (id) => {
 }
 
 // ============================================================================
-// 1. ÉTAT RÉACTIF & DONNÉES STATIQUES DU DASHBOARD (CONCEPTION BDD)
+// 3. CONFIGURATION DES GRAPHIQUES (COMPUTED depuis données API)
 // ============================================================================
 
-// Filtres du tableau opérationnel des actions
-const selectedSecteur = ref('all')
-const selectedResponsable = ref('all')
-const searchQuery = ref('')
-const isRefreshing = ref(false)
-
-/**
- * Simule une synchronisation et recalcul des snapshots d'indicateurs
- */
-const handleRefreshSnapshots = () => {
-  isRefreshing.value = true
-  setTimeout(() => {
-    isRefreshing.value = false
-  }, 700)
-}
-
-// ============================================================================
-// 2. CONFIGURATION DES GRAPHIQUES OFFICIELS (CHART.JS)
-// ============================================================================
-
-// --- GRAPHIQUE 1 : Courbe mensuelle combinée : TF & IF vs Objectif (Target 2,5) ---
-const monthlyKpiData = {
-  labels: ['Janv', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept'],
+// --- GRAPHIQUE 1 : Courbe mensuelle combinée : TF & IF vs Objectif ---
+const monthlyKpiData = computed(() => ({
+  labels: monthlyLabels.value.length > 0 ? monthlyLabels.value : ['Aucune donnée'],
   datasets: [
     {
       label: 'Taux de Fréquence (TF)',
-      data: [3.10, 2.85, 2.60, 2.25, 2.10, 1.98, 1.92, 1.88, 1.82],
+      data: monthlyTF.value,
       borderColor: '#00c996',
       backgroundColor: 'rgba(0, 201, 150, 0.15)',
       fill: true,
@@ -289,7 +446,7 @@ const monthlyKpiData = {
     },
     {
       label: 'Indice de Fréquence (IF / 10)',
-      data: [2.1, 1.95, 1.80, 1.65, 1.50, 1.42, 1.35, 1.28, 1.20],
+      data: monthlyIF.value,
       borderColor: '#38bdf8',
       backgroundColor: 'transparent',
       borderDash: [4, 4],
@@ -299,8 +456,8 @@ const monthlyKpiData = {
       yAxisID: 'y',
     },
     {
-      label: 'Objectif Cible Max (Target 2.5)',
-      data: [2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5],
+      label: `Objectif Cible Max (Target ${targetTF.value})`,
+      data: monthlyLabels.value.map(() => targetTF.value),
       borderColor: '#ef4444',
       backgroundColor: 'transparent',
       borderWidth: 2,
@@ -309,24 +466,16 @@ const monthlyKpiData = {
       yAxisID: 'y',
     },
   ],
-}
+}))
 
 const monthlyKpiOptions = {
   responsive: true,
   maintainAspectRatio: false,
-  interaction: {
-    mode: 'index',
-    intersect: false,
-  },
+  interaction: { mode: 'index', intersect: false },
   plugins: {
     legend: {
       position: 'top',
-      labels: {
-        color: '#94a3b8',
-        font: { family: 'Plus Jakarta Sans', size: 11, weight: '700' },
-        usePointStyle: true,
-        boxWidth: 8,
-      },
+      labels: { color: '#94a3b8', font: { family: 'Plus Jakarta Sans', size: 11, weight: '700' }, usePointStyle: true, boxWidth: 8 },
     },
     tooltip: {
       backgroundColor: '#001c24',
@@ -338,39 +487,24 @@ const monthlyKpiOptions = {
     },
   },
   scales: {
-    x: {
-      ticks: { color: '#94a3b8', font: { weight: '600', size: 11 } },
-      grid: { color: 'rgba(255,255,255,0.03)' },
-    },
+    x: { ticks: { color: '#94a3b8', font: { weight: '600', size: 11 } }, grid: { color: 'rgba(255,255,255,0.03)' } },
     y: {
-      type: 'linear',
-      display: true,
-      position: 'left',
-      min: 0,
-      max: 4.0,
-      ticks: {
-        color: '#94a3b8',
-        font: { weight: '600', size: 11 },
-        stepSize: 0.5,
-      },
+      type: 'linear', display: true, position: 'left', min: 0,
+      suggestedMax: 4.0,
+      ticks: { color: '#94a3b8', font: { weight: '600', size: 11 } },
       grid: { color: 'rgba(255,255,255,0.05)' },
-      title: {
-        display: true,
-        text: 'Valeur TF & IF',
-        color: '#64748b',
-        font: { size: 10, weight: '700' },
-      },
+      title: { display: true, text: 'Valeur TF & IF', color: '#64748b', font: { size: 10, weight: '700' } },
     },
   },
 }
 
-// --- GRAPHIQUE 2 : Évolution du Taux de Conformité au fil des semaines ---
-const weeklyConformiteData = {
-  labels: ['Sem 30', 'Sem 31', 'Sem 32', 'Sem 33', 'Sem 34', 'Sem 35', 'Sem 36 (Dernière)'],
+// --- GRAPHIQUE 2 : Évolution du Taux de Conformité ---
+const weeklyConformiteData = computed(() => ({
+  labels: conformiteLabels.value.length > 0 ? conformiteLabels.value : ['Aucune donnée'],
   datasets: [
     {
       label: 'Taux Conformité Global (%)',
-      data: [86.2, 88.0, 87.4, 89.8, 91.2, 90.9, 92.4],
+      data: conformiteValues.value,
       borderColor: '#a8e063',
       backgroundColor: 'rgba(168, 224, 99, 0.18)',
       fill: true,
@@ -381,7 +515,7 @@ const weeklyConformiteData = {
       pointRadius: 5,
     },
   ],
-}
+}))
 
 const weeklyConformiteOptions = {
   responsive: true,
@@ -389,50 +523,27 @@ const weeklyConformiteOptions = {
   plugins: {
     legend: { display: false },
     tooltip: {
-      backgroundColor: '#001c24',
-      titleColor: '#a8e063',
-      bodyColor: '#fff',
-      borderColor: '#a8e063',
-      borderWidth: 1,
-      callbacks: {
-        label: (context) => ` Conformité : ${context.parsed.y} %`,
-      },
+      backgroundColor: '#001c24', titleColor: '#a8e063', bodyColor: '#fff', borderColor: '#a8e063', borderWidth: 1,
+      callbacks: { label: (context) => ` Conformité : ${context.parsed.y} %` },
     },
   },
   scales: {
-    x: {
-      ticks: { color: '#94a3b8', font: { weight: '600', size: 11 } },
-      grid: { display: false },
-    },
+    x: { ticks: { color: '#94a3b8', font: { weight: '600', size: 11 } }, grid: { display: false } },
     y: {
-      min: 75,
-      max: 100,
-      ticks: {
-        color: '#94a3b8',
-        font: { weight: '600', size: 11 },
-        stepSize: 5,
-        callback: (val) => `${val}%`,
-      },
+      min: 0, max: 100,
+      ticks: { color: '#94a3b8', font: { weight: '600', size: 11 }, stepSize: 10, callback: (val) => `${val}%` },
       grid: { color: 'rgba(255,255,255,0.05)' },
     },
   },
 }
 
-// --- GRAPHIQUE 3 : Radar des 7 Thématiques (FGSI-001 & FGSI-010) ---
-const radarThematiqueData = {
-  labels: [
-    'EPI & Tenue',
-    'ATEX / Élec',
-    'Incendie & Évac',
-    'Ergonomie',
-    '5S & Ordre',
-    'Produits Chimiques',
-    'Risques Machine',
-  ],
+// --- GRAPHIQUE 3 : Radar des 7 Thématiques ---
+const radarThematiqueData = computed(() => ({
+  labels: radarLabels.value.length > 0 ? radarLabels.value : ['Aucune donnée'],
   datasets: [
     {
       label: 'Score Réel Obtenu (%)',
-      data: [94, 88, 96, 76, 91, 82, 89],
+      data: radarScores.value,
       backgroundColor: 'rgba(0, 201, 150, 0.25)',
       borderColor: '#00c996',
       pointBackgroundColor: '#00c996',
@@ -442,7 +553,7 @@ const radarThematiqueData = {
     },
     {
       label: 'Seuil Minimum Exigé (85%)',
-      data: [85, 85, 85, 85, 85, 85, 85],
+      data: radarLabels.value.map(() => 85),
       backgroundColor: 'transparent',
       borderColor: 'rgba(239, 68, 68, 0.65)',
       borderDash: [3, 3],
@@ -450,7 +561,7 @@ const radarThematiqueData = {
       borderWidth: 1.5,
     },
   ],
-}
+}))
 
 const radarThematiqueOptions = {
   responsive: true,
@@ -458,58 +569,42 @@ const radarThematiqueOptions = {
   plugins: {
     legend: {
       position: 'bottom',
-      labels: {
-        color: '#94a3b8',
-        font: { family: 'Plus Jakarta Sans', size: 10, weight: '700' },
-        boxWidth: 8,
-      },
+      labels: { color: '#94a3b8', font: { family: 'Plus Jakarta Sans', size: 10, weight: '700' }, boxWidth: 8 },
     },
-    tooltip: {
-      backgroundColor: '#001c24',
-      titleColor: '#00c996',
-      borderColor: 'rgba(0, 201, 150, 0.3)',
-      borderWidth: 1,
-    },
+    tooltip: { backgroundColor: '#001c24', titleColor: '#00c996', borderColor: 'rgba(0, 201, 150, 0.3)', borderWidth: 1 },
   },
   scales: {
     r: {
-      min: 50,
-      max: 100,
-      ticks: {
-        display: false,
-        stepSize: 10,
-      },
-      angleLines: {
-        color: 'rgba(255, 255, 255, 0.08)',
-      },
-      grid: {
-        color: 'rgba(255, 255, 255, 0.06)',
-      },
-      pointLabels: {
-        color: '#cbd5e1',
-        font: {
-          family: 'Plus Jakarta Sans',
-          size: 10.5,
-          weight: '700',
-        },
-      },
+      min: 0, max: 100,
+      ticks: { display: false, stepSize: 10 },
+      angleLines: { color: 'rgba(255, 255, 255, 0.08)' },
+      grid: { color: 'rgba(255, 255, 255, 0.06)' },
+      pointLabels: { color: '#cbd5e1', font: { family: 'Plus Jakarta Sans', size: 10.5, weight: '700' } },
     },
   },
 }
 
 // --- GRAPHIQUE 4 : Donut du Statut des Actions Correctives ---
-const actionsDonutData = {
-  labels: ['Soldées (68%)', 'En cours (21%)', 'En retard (7%)', 'Non engagées (4%)'],
+const totalActions = computed(() => actionsSoldee.value + actionsEnCours.value + actionsRetardCount.value + actionsNonEngagee.value)
+const pctSoldee = computed(() => totalActions.value > 0 ? Math.round(actionsSoldee.value / totalActions.value * 100) : 0)
+
+const actionsDonutData = computed(() => ({
+  labels: [
+    `Soldées (${pctSoldee.value}%)`,
+    `En cours (${totalActions.value > 0 ? Math.round(actionsEnCours.value / totalActions.value * 100) : 0}%)`,
+    `En retard (${totalActions.value > 0 ? Math.round(actionsRetardCount.value / totalActions.value * 100) : 0}%)`,
+    `Non engagées (${totalActions.value > 0 ? Math.round(actionsNonEngagee.value / totalActions.value * 100) : 0}%)`
+  ],
   datasets: [
     {
-      data: [94, 29, 9, 5],
+      data: [actionsSoldee.value, actionsEnCours.value, actionsRetardCount.value, actionsNonEngagee.value],
       backgroundColor: ['#10b981', '#3b82f6', '#ef4444', '#f59e0b'],
       borderColor: ['#001c24', '#001c24', '#001c24', '#001c24'],
       borderWidth: 3,
       hoverOffset: 4,
     },
   ],
-}
+}))
 
 const actionsDonutOptions = {
   responsive: true,
@@ -517,132 +612,100 @@ const actionsDonutOptions = {
   plugins: {
     legend: {
       position: 'bottom',
-      labels: {
-        color: '#94a3b8',
-        font: { family: 'Plus Jakarta Sans', size: 10.5, weight: '700' },
-        padding: 12,
-        usePointStyle: true,
-        boxWidth: 8,
-      },
+      labels: { color: '#94a3b8', font: { family: 'Plus Jakarta Sans', size: 10.5, weight: '700' }, padding: 12, usePointStyle: true, boxWidth: 8 },
     },
-    tooltip: {
-      backgroundColor: '#001c24',
-      titleColor: '#fff',
-      bodyColor: '#cbd5e1',
-      borderColor: 'rgba(255,255,255,0.1)',
-      borderWidth: 1,
-    },
+    tooltip: { backgroundColor: '#001c24', titleColor: '#fff', bodyColor: '#cbd5e1', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1 },
   },
   cutout: '68%',
 }
 
 // ============================================================================
-// 3. TABLEAU OPÉRATIONNEL : ACTIONS CORRECTIVES EN RETARD
+// 4. FILTRAGE RÉACTIF DES ACTIONS EN RETARD
 // ============================================================================
-
-/**
- * Données brutes des actions correctives en retard d'échéance
- */
-const rawActionsEnRetard = [
-  {
-    id: 1,
-    ref: 'AUD-2026-004',
-    source: 'Audit HSE (FGSI-001)',
-    secteur: 'Local Chimie & Déchets',
-    constat: 'Bacs de rétention encombrés, fiches FDS manquantes sur solvants',
-    action: 'Dégager les bacs de rétention et imprimer les FDS actualisées',
-    responsable: 'Jean Dupont',
-    delai: '28/08/2026',
-    retardJours: 13,
-    priorite: 'Critique',
-  },
-  {
-    id: 2,
-    ref: 'TRN-2026-012',
-    source: 'Tournée HSE (FGSI-010)',
-    secteur: 'Ligne Production CMS A',
-    constat: 'Absence de marquage au sol pour issue de secours dégagée',
-    action: 'Repeindre le zébrage jaune/noir et sensibiliser l\'équipe de nuit',
-    responsable: 'Karim Ben Ali',
-    delai: '02/09/2026',
-    retardJours: 8,
-    priorite: 'Moyenne',
-  },
-  {
-    id: 3,
-    ref: 'AUD-2026-006',
-    source: 'Audit HSE (FGSI-001)',
-    secteur: 'Maintenance & Utilités',
-    constat: 'Cadenas de consignation LOTO usagés sans étiquetage nominatif',
-    action: 'Approvisionner 10 kits de consignation conformes norme interne',
-    responsable: 'Sophie Martin',
-    delai: '04/09/2026',
-    retardJours: 6,
-    priorite: 'Haute',
-  },
-  {
-    id: 4,
-    ref: 'TRN-2026-014',
-    source: 'Tournée HSE (FGSI-010)',
-    secteur: 'Zone Stockage PDR',
-    constat: 'Hauteur de gerbage supérieure à 3m sans filet de retenue',
-    action: 'Installer filet antichute et réorganiser le rayonnage lourd',
-    responsable: 'Ahmed Mansour',
-    delai: '05/09/2026',
-    retardJours: 5,
-    priorite: 'Critique',
-  },
-  {
-    id: 5,
-    ref: 'AUD-2026-007',
-    source: 'Audit HSE (FGSI-001)',
-    secteur: 'Ligne Assemblage B',
-    constat: 'Tapis antifatigue détérioré créant un risque de trébuchement',
-    action: 'Remplacer 3 dalles antifatigue poste vissage B2',
-    responsable: 'Nadia Trabelsi',
-    delai: '07/09/2026',
-    retardJours: 3,
-    priorite: 'Basse',
-  },
-]
 
 /**
  * Filtrage dynamique réactif selon le secteur, le responsable et la recherche libre
  */
 const filteredActions = computed(() => {
-  return rawActionsEnRetard.filter((item) => {
+  return rawActionsEnRetard.value.filter((item) => {
     const matchSecteur = selectedSecteur.value === 'all' || item.secteur === selectedSecteur.value
     const matchResponsable = selectedResponsable.value === 'all' || item.responsable === selectedResponsable.value
     const query = searchQuery.value.toLowerCase().trim()
     const matchSearch =
       !query ||
-      item.ref.toLowerCase().includes(query) ||
-      item.constat.toLowerCase().includes(query) ||
-      item.action.toLowerCase().includes(query) ||
-      item.responsable.toLowerCase().includes(query) ||
-      item.secteur.toLowerCase().includes(query)
+      (item.ref || '').toLowerCase().includes(query) ||
+      (item.constat || '').toLowerCase().includes(query) ||
+      (item.action || '').toLowerCase().includes(query) ||
+      (item.responsable || '').toLowerCase().includes(query) ||
+      (item.secteur || '').toLowerCase().includes(query)
 
     return matchSecteur && matchResponsable && matchSearch
   })
 })
 
-// Liste des secteurs disponibles pour le filtre déroulant
-const secteursList = [
-  'Ligne Production CMS A',
-  'Zone Stockage PDR',
-  'Ligne Assemblage B',
-  'Local Chimie & Déchets',
-  'Maintenance & Utilités',
-]
+// Liste des secteurs disponibles pour le filtre déroulant (dynamique depuis les données)
+const secteursList = computed(() => {
+  const set = new Set(rawActionsEnRetard.value.map(a => a.secteur).filter(Boolean))
+  return [...set]
+})
 
-// Liste des responsables opérationnels pour le filtre déroulant
-const responsablesList = [
-  'Jean Dupont',
-  'Karim Ben Ali',
-  'Sophie Martin',
-  'Ahmed Mansour',
-  'Nadia Trabelsi',
-]
+// Liste des responsables opérationnels pour le filtre déroulant (dynamique depuis les données)
+const responsablesList = computed(() => {
+  const set = new Set(rawActionsEnRetard.value.map(a => a.responsable).filter(Boolean))
+  return [...set]
+})
+
+// Label du filtre actif pour l'affichage
+const filterLabel = computed(() => {
+  const parts = []
+  if (filterYear.value) parts.push(`Année ${filterYear.value}`)
+  if (filterDateDebut.value) parts.push(`Du ${filterDateDebut.value}`)
+  if (filterDateFin.value) parts.push(`Au ${filterDateFin.value}`)
+  return parts.length > 0 ? parts.join(' · ') : 'Toutes les données'
+})
+
+// Mois en cours en français
+const moisCourant = computed(() => {
+  const mois = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']
+  return mois[new Date().getMonth()]
+})
+
+// Max retard jours
+const maxRetardJours = computed(() => {
+  if (rawActionsEnRetard.value.length === 0) return 0
+  return Math.max(...rawActionsEnRetard.value.map(a => a.retardJours || 0))
+})
+
+// Secteurs impactés
+const secteursImpactes = computed(() => {
+  const set = new Set(rawActionsEnRetard.value.map(a => a.secteur).filter(Boolean))
+  return set.size
+})
+
+// Responsables notifiés
+const responsablesNotifies = computed(() => {
+  const set = new Set(rawActionsEnRetard.value.map(a => a.responsable).filter(Boolean))
+  return set.size
+})
+
+// Points forts et point de vigilance du radar thématique (calculés dynamiquement)
+const radarPointsForts = computed(() => {
+  if (!radarLabels.value.length || !radarScores.value.length) return 'Données en cours...'
+  const items = radarLabels.value.map((label, idx) => ({ label, score: radarScores.value[idx] || 0 }))
+  const sorted = [...items].sort((a, b) => b.score - a.score)
+  const top = sorted.slice(0, 2).filter(i => i.score > 0)
+  if (!top.length) return 'Données en cours...'
+  return top.map(i => `${i.label} (${i.score}%)`).join(', ')
+})
+
+const radarVigilance = computed(() => {
+  if (!radarLabels.value.length || !radarScores.value.length) return 'Aucun'
+  const items = radarLabels.value.map((label, idx) => ({ label, score: radarScores.value[idx] || 0 }))
+  const sorted = [...items].sort((a, b) => a.score - b.score)
+  const low = sorted.slice(0, 1)
+  if (!low.length) return 'Aucun'
+  return `${low[0].label} (${low[0].score}%)`
+})
 </script>
 
 
@@ -749,6 +812,86 @@ const responsablesList = [
     </div>
 
     <!-- ===================================================================== -->
+    <!-- BARRE DE FILTRES DE DATE                                               -->
+    <!-- ===================================================================== -->
+    <div
+      class="glass-card"
+      style="
+        padding: 1rem 1.5rem;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        flex-wrap: wrap;
+        border: 1px solid rgba(0, 201, 150, 0.2);
+      "
+    >
+      <div style="display: flex; align-items: center; gap: 6px; color: var(--color-primary); font-weight: 800; font-size: 0.82rem;">
+        <Calendar :size="16" />
+        <span>Filtrer par période</span>
+      </div>
+
+      <!-- Filtre par Année -->
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <label style="font-size: 0.78rem; color: var(--text-muted); font-weight: 700;">Année :</label>
+        <select
+          v-model="filterYear"
+          @change="applyDateFilters"
+          class="form-input"
+          style="background: rgba(0,28,36,0.9); border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 6px 10px; border-radius: var(--radius-sm); font-size: 0.8rem; font-weight: 600; cursor: pointer; min-width: 90px;"
+        >
+          <option :value="null">Toutes</option>
+          <option v-for="y in availableYears" :key="y" :value="y">{{ y }}</option>
+        </select>
+      </div>
+
+      <!-- Filtre Date de Début -->
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <label style="font-size: 0.78rem; color: var(--text-muted); font-weight: 700;">Du :</label>
+        <input
+          v-model="filterDateDebut"
+          @keyup.enter="applyDateFilters"
+          type="date"
+          class="form-input"
+          style="background: rgba(0,28,36,0.9); border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 6px 10px; border-radius: var(--radius-sm); font-size: 0.8rem; font-weight: 600; cursor: pointer;"
+        />
+      </div>
+
+      <!-- Filtre Date de Fin -->
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <label style="font-size: 0.78rem; color: var(--text-muted); font-weight: 700;">Au :</label>
+        <input
+          v-model="filterDateFin"
+          @keyup.enter="applyDateFilters"
+          type="date"
+          class="form-input"
+          style="background: rgba(0,28,36,0.9); border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 6px 10px; border-radius: var(--radius-sm); font-size: 0.8rem; font-weight: 600; cursor: pointer;"
+        />
+      </div>
+
+      <!-- Boutons Appliquer / Réinitialiser -->
+      <button
+        @click="applyDateFilters"
+        style="background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-dark) 100%); border: none; color: #001c24; padding: 7px 16px; border-radius: var(--radius-sm); font-size: 0.8rem; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 5px;"
+      >
+        <Filter :size="14" />
+        Appliquer
+      </button>
+
+      <button
+        v-if="filterYear || filterDateDebut || filterDateFin"
+        @click="resetDateFilters"
+        style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: var(--text-muted); padding: 6px 12px; border-radius: var(--radius-sm); font-size: 0.78rem; font-weight: 700; cursor: pointer;"
+      >
+        Réinitialiser
+      </button>
+
+      <!-- Label du filtre actif -->
+      <span style="margin-left: auto; font-size: 0.75rem; color: var(--text-dim); font-weight: 600;">
+        📊 {{ filterLabel }}
+      </span>
+    </div>
+
+    <!-- ===================================================================== -->
     <!-- BANDEAU SUPÉRIEUR (SCORECARDS DE SYNTHÈSE STRATÉGIQUE)                 -->
     <!-- ===================================================================== -->
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.25rem;">
@@ -761,7 +904,7 @@ const responsablesList = [
               Taux de Fréquence (TF)
             </span>
             <div style="font-size: 0.72rem; color: var(--text-dim); margin-top: 2px;">
-              Mois en cours (Septembre)
+              Mois en cours ({{ moisCourant }})
             </div>
           </div>
           <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(0,201,150,0.12); color: var(--color-primary); display: flex; align-items: center; justify-content: center;">
@@ -771,17 +914,19 @@ const responsablesList = [
 
         <div style="display: flex; align-items: baseline; gap: 8px; margin-top: 12px;">
           <div style="font-size: 2.1rem; font-weight: 800; color: #ffffff; font-family: var(--font-mono); letter-spacing: -1px;">
-            1.82
+            {{ tfCourant.toFixed(2) }}
           </div>
           <span style="font-size: 0.75rem; color: var(--text-dim); font-weight: 600;">accidents / 10⁶ h</span>
         </div>
 
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06);">
-          <span style="display: flex; align-items: center; gap: 4px; font-size: 0.74rem; color: #10b981; font-weight: 700;">
-            <TrendingDown :size="14" /> -0.38 vs Août
+          <span :style="{ color: tfVariation <= 0 ? '#10b981' : '#ef4444' }" style="display: flex; align-items: center; gap: 4px; font-size: 0.74rem; font-weight: 700;">
+            <TrendingDown v-if="tfVariation <= 0" :size="14" />
+            <TrendingUp v-else :size="14" />
+            {{ tfVariation >= 0 ? '+' : '' }}{{ tfVariation.toFixed(2) }} vs mois préc.
           </span>
           <span style="background: rgba(16, 185, 129, 0.15); color: #10b981; font-size: 0.7rem; font-weight: 800; padding: 2px 7px; border-radius: 6px;">
-            Cible &le; 2.50
+            Cible &le; {{ targetTF }}
           </span>
         </div>
       </div>
@@ -804,17 +949,19 @@ const responsablesList = [
 
         <div style="display: flex; align-items: baseline; gap: 8px; margin-top: 12px;">
           <div style="font-size: 2.1rem; font-weight: 800; color: var(--color-accent-light); font-family: var(--font-mono); letter-spacing: -1px;">
-            92.4 %
+            {{ conformiteDerniereTournee.toFixed(1) }} %
           </div>
-          <span style="font-size: 0.75rem; color: var(--text-dim); font-weight: 600;">47 / 51 conformes</span>
+          <span style="font-size: 0.75rem; color: var(--text-dim); font-weight: 600;">{{ totalAudits }} fiches</span>
         </div>
 
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06);">
-          <span style="display: flex; align-items: center; gap: 4px; font-size: 0.74rem; color: var(--color-accent-light); font-weight: 700;">
-            <TrendingUp :size="14" /> +1.5% vs précédente
+          <span :style="{ color: conformiteVariation >= 0 ? 'var(--color-accent-light)' : '#ef4444' }" style="display: flex; align-items: center; gap: 4px; font-size: 0.74rem; font-weight: 700;">
+            <TrendingUp v-if="conformiteVariation >= 0" :size="14" />
+            <TrendingDown v-else :size="14" />
+            {{ conformiteVariation >= 0 ? '+' : '' }}{{ conformiteVariation.toFixed(1) }}% vs précédente
           </span>
           <span style="background: rgba(0, 201, 150, 0.12); color: var(--color-primary); font-size: 0.7rem; font-weight: 800; padding: 2px 7px; border-radius: 6px;">
-            Secteur CMS A
+            Moy. {{ avgConformite.toFixed(1) }}%
           </span>
         </div>
       </div>
@@ -845,16 +992,16 @@ const responsablesList = [
 
         <div style="display: flex; align-items: baseline; gap: 8px; margin-top: 12px;">
           <div style="font-size: 2.1rem; font-weight: 800; color: #ffffff; font-family: var(--font-mono); letter-spacing: -1px; text-shadow: 0 0 10px rgba(239,68,68,0.7);">
-            5
+            {{ actionsEnRetard }}
           </div>
           <span style="font-size: 0.75rem; color: #fca5a5; font-weight: 700;">actions critiques</span>
         </div>
 
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(239,68,68,0.25);">
           <span style="display: flex; align-items: center; gap: 4px; font-size: 0.74rem; color: #fca5a5; font-weight: 700;">
-            <Clock :size="14" /> Dépassement max : 13j
+            <Clock :size="14" /> Dépassement max : {{ maxRetardJours }}j
           </span>
-          <span style="background: #ef4444; color: #fff; font-size: 0.7rem; font-weight: 800; padding: 2px 7px; border-radius: 6px; letter-spacing: 0.4px;">
+          <span v-if="actionsEnRetard > 0" style="background: #ef4444; color: #fff; font-size: 0.7rem; font-weight: 800; padding: 2px 7px; border-radius: 6px; letter-spacing: 0.4px;">
             URGENT
           </span>
         </div>
@@ -885,14 +1032,14 @@ const responsablesList = [
 
         <div style="display: flex; align-items: baseline; gap: 8px; margin-top: 12px;">
           <div style="font-size: 2.1rem; font-weight: 800; color: #10b981; font-family: var(--font-mono); letter-spacing: -1px;">
-            148
+            {{ joursSansAccident }}
           </div>
           <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">Jours consécutifs</span>
         </div>
 
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06);">
           <span style="font-size: 0.74rem; color: var(--text-muted); font-weight: 600;">
-            Dernier arrêt : 15/04/2026
+            {{ dernierAccidentDate || 'Aucun enregistrement' }}
           </span>
           <span style="background: rgba(168, 224, 99, 0.15); color: var(--color-accent-light); font-size: 0.7rem; font-weight: 800; padding: 2px 7px; border-radius: 6px;">
             Record : 365 j
@@ -1193,9 +1340,9 @@ const responsablesList = [
             <Line :data="monthlyKpiData" :options="monthlyKpiOptions" />
           </div>
           <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; font-size: 0.75rem; color: var(--text-dim); border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px;">
-            <span>TF Septembre : <strong style="color: var(--color-primary)">1.82</strong></span>
-            <span>Target Maximale : <strong style="color: #ef4444">2.50</strong></span>
-            <span>Statut : <strong style="color: #10b981">Conforme à la Cible (Marge +27%)</strong></span>
+            <span>TF {{ moisCourant }} : <strong style="color: var(--color-primary)">{{ tfCourant.toFixed(2) }}</strong></span>
+            <span>Target Maximale : <strong style="color: #ef4444">{{ targetTF }}</strong></span>
+            <span>Statut : <strong :style="{ color: tfCourant <= targetTF ? '#10b981' : '#ef4444' }">{{ tfCourant <= targetTF ? 'Conforme à la Cible' : 'Non conforme' }}</strong></span>
           </div>
         </div>
 
@@ -1219,8 +1366,8 @@ const responsablesList = [
             <Line :data="weeklyConformiteData" :options="weeklyConformiteOptions" />
           </div>
           <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; font-size: 0.75rem; color: var(--text-dim); border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px;">
-            <span>Moyenne Période : <strong style="color: #fff">89.5%</strong></span>
-            <span>Progression globale : <strong style="color: #10b981">+6.2 pts depuis S30</strong></span>
+            <span>Moyenne Période : <strong style="color: #fff">{{ avgConformite.toFixed(1) }}%</strong></span>
+            <span>{{ totalAudits }} soumissions dans la période</span>
           </div>
         </div>
 
@@ -1251,8 +1398,8 @@ const responsablesList = [
             <Radar :data="radarThematiqueData" :options="radarThematiqueOptions" />
           </div>
           <div style="margin-top: 10px; font-size: 0.74rem; color: var(--text-muted); border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px; display: flex; justify-content: space-between;">
-            <span style="color: #10b981;">Points forts : Incendie (96%), EPI (94%)</span>
-            <span style="color: #ef4444;">Point de vigilance : Ergonomie (76%)</span>
+            <span style="color: #10b981;">Points forts : {{ radarPointsForts }}</span>
+            <span style="color: #ef4444;">Point de vigilance : {{ radarVigilance }}</span>
           </div>
         </div>
 
@@ -1269,7 +1416,7 @@ const responsablesList = [
               </h3>
             </div>
             <span style="background: rgba(96, 165, 250, 0.1); border: 1px solid rgba(96, 165, 250, 0.25); color: #60a5fa; font-size: 0.72rem; font-weight: 700; padding: 4px 10px; border-radius: 20px;">
-              Total : 137 Actions
+              Total : {{ totalActions }} Actions
             </span>
           </div>
           <div style="height: 220px; position: relative;">
@@ -1285,15 +1432,15 @@ const responsablesList = [
                 pointer-events: none;
               "
             >
-              <div style="font-size: 1.6rem; font-weight: 800; color: #fff; font-family: var(--font-mono);">68%</div>
+              <div style="font-size: 1.6rem; font-weight: 800; color: #fff; font-family: var(--font-mono);">{{ pctSoldee }}%</div>
               <div style="font-size: 0.68rem; color: var(--text-dim); text-transform: uppercase; font-weight: 700;">Soldées</div>
             </div>
           </div>
           <div style="display: flex; justify-content: space-around; align-items: center; margin-top: 10px; font-size: 0.74rem; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px;">
-            <span style="color: #10b981; font-weight: 700;">● 94 Soldées</span>
-            <span style="color: #3b82f6; font-weight: 700;">● 29 En cours</span>
-            <span style="color: #ef4444; font-weight: 700;">● 9 En retard</span>
-            <span style="color: #f59e0b; font-weight: 700;">● 5 Non engagées</span>
+            <span style="color: #10b981; font-weight: 700;">● {{ actionsSoldee }} Soldées</span>
+            <span style="color: #3b82f6; font-weight: 700;">● {{ actionsEnCours }} En cours</span>
+            <span style="color: #ef4444; font-weight: 700;">● {{ actionsRetardCount }} En retard</span>
+            <span style="color: #f59e0b; font-weight: 700;">● {{ actionsNonEngagee }} Non engagées</span>
           </div>
         </div>
 
@@ -1536,8 +1683,8 @@ const responsablesList = [
           Affichage de <strong style="color: #fff">{{ filteredActions.length }}</strong> action(s) en retard sur <strong style="color: #fff">{{ rawActionsEnRetard.length }}</strong> au total.
         </div>
         <div style="display: flex; gap: 12px;">
-          <span>Secteurs impactés : <strong style="color: #fca5a5">4</strong></span>
-          <span>Responsables notifiés : <strong style="color: #fca5a5">5</strong></span>
+          <span>Secteurs impactés : <strong style="color: #fca5a5">{{ secteursImpactes }}</strong></span>
+          <span>Responsables notifiés : <strong style="color: #fca5a5">{{ responsablesNotifies }}</strong></span>
         </div>
       </div>
     </div>
