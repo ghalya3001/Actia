@@ -87,6 +87,12 @@ class Settings(BaseSettings):
     # Nom d'affichage de l'expéditeur dans la boîte de messagerie
     EMAILS_FROM_NAME: str = "PlatformActia Responsable Portal"
 
+    # --- 5. Identifiants du Super-Administrateur Principal ---
+    # Modifiables facilement directement dans le fichier .env
+    ADMIN_EMAIL: str = "admin@actia.com"
+    ADMIN_PASSWORD: str = "AdminSecure2026!"
+    ADMIN_NAME: str = "Administrateur HSE Actia"
+
     # Configuration Pydantic v2 pour charger les variables depuis le fichier .env
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -90,8 +90,8 @@ def send_otp_email(email_to: str, otp_code: str) -> bool:
             part = MIMEText(html_content, "html")
             msg.attach(part)
 
-            # Connexion sécurisée au serveur SMTP avec chiffrement TLS
-            with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
+            # Connexion sécurisée au serveur SMTP avec chiffrement TLS et timeout de sécurité
+            with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10) as server:
                 server.starttls()  # Négociation du tunnel TLS chiffré
                 server.login(smtp_user, smtp_password)  # Authentification auprès de Google
                 server.sendmail(from_email, [email_to], msg.as_string())  # Expédition

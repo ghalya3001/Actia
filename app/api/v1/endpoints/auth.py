@@ -25,7 +25,7 @@ import logging
 import jwt
 from datetime import datetime, timedelta, timezone
 from typing import Any
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
@@ -357,12 +357,14 @@ def update_current_user(
 )
 def forgot_password(
     body: ForgotPasswordRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ) -> Any:
     """
     Génère un code numérique à 6 chiffres à durée limitée (15 minutes).
     Stocke l'empreinte bcrypt du code dans 'pwd_reset_request'.
-    Retourne le code directement pour une prise en charge immédiate par l'interface.
+    Retourne instantanément le code pour une réactivité optimale du client
+    et expédie le courriel en tâche de fond non-bloquante via BackgroundTasks.
     """
     user = db.query(User).filter(User.email == body.email).first()
     if not user or not user.is_active:
@@ -388,14 +390,14 @@ def forgot_password(
     db.add(reset_record)
     db.commit()
 
-    # Envoi éventuel par e-mail si SMTP configuré
-    send_otp_email(user.email, otp_code)
+    # Envoi asynchrone non-bloquant en arrière-plan via BackgroundTasks
+    background_tasks.add_task(send_otp_email, user.email, otp_code)
 
     # Trace en console pour le débogage et tests
     print(f"\n[OTP GENERATED] Code pour {user.email} : {otp_code} (valide 15 minutes)\n")
 
     return OTPResponse(
-        message="Votre code de vérification a été généré avec succès. Utilisez-le pour réinitialiser votre mot de passe.",
+        message="Votre code de vérification a été généré avec succès. Consultez votre boîte de réception.",
         otp_code=otp_code
     )
 

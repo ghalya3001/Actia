@@ -19,12 +19,14 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 from sqlalchemy.orm import Session
 from app.db.session import SessionLocal
 from app.models.user import User, UserRole, UserStatus
-from app.core.security import hash_password
+from app.core.security import hash_password, verify_password
+from app.core.config import settings
 
 
 def seed_admin(db: Session = None) -> User:
     """
-    Crée ou promeut l'administrateur par défaut dans la base de données.
+    Crée ou synchronise l'administrateur principal dans la base de données
+    à partir des variables définies dans app/core/config.py et le fichier .env.
     """
     close_db = False
     if db is None:
@@ -32,10 +34,9 @@ def seed_admin(db: Session = None) -> User:
         close_db = True
 
     try:
-        admin_email = os.getenv("ADMIN_EMAIL", "admin@actia.com").strip().lower()
-        # Mot de passe par défaut pour le développement local si non configuré en env
-        admin_password = os.getenv("ADMIN_PASSWORD", "AdminSecure2026!").strip()
-        admin_name = os.getenv("ADMIN_NAME", "Administrateur HSE Actia").strip()
+        admin_email = settings.ADMIN_EMAIL.strip().lower()
+        admin_password = settings.ADMIN_PASSWORD.strip()
+        admin_name = settings.ADMIN_NAME.strip()
 
         user = db.query(User).filter(User.email == admin_email).first()
 
@@ -44,16 +45,18 @@ def seed_admin(db: Session = None) -> User:
             user.role = UserRole.ADMIN.value
             user.status = UserStatus.APPROVED.value
             user.is_active = True
-            # On ne réinitialise PAS le mot de passe s'il existe déjà, sauf si demandé via FORCE_RESET_ADMIN_PASSWORD
-            if not user.hashed_password or os.getenv("FORCE_RESET_ADMIN_PASSWORD", "false").lower() == "true":
+            user.full_name = admin_name
+
+            # Si le mot de passe dans .env ou config a été modifié, on le synchronise automatiquement
+            if not user.hashed_password or not verify_password(admin_password, user.hashed_password):
                 user.hashed_password = hash_password(admin_password)
-                print(f"[SEED ADMIN] Mot de passe administrateur {admin_email} réinitialisé par configuration.")
+                print(f"[SEED ADMIN] Mot de passe administrateur synchronisé depuis .env pour {admin_email}.")
             db.commit()
             db.refresh(user)
             print(f"[SEED ADMIN] Compte administrateur {admin_email} vérifié (Role: ADMIN, Status: APPROVED).")
             return user
         else:
-            # Création du premier compte administrateur
+            # Création du premier compte administrateur à partir de la configuration .env
             new_admin = User(
                 email=admin_email,
                 full_name=admin_name,
@@ -65,7 +68,7 @@ def seed_admin(db: Session = None) -> User:
             db.add(new_admin)
             db.commit()
             db.refresh(new_admin)
-            print(f"[SEED ADMIN] Nouvel administrateur créé : {admin_email} (Role: ADMIN, Status: APPROVED).")
+            print(f"[SEED ADMIN] Nouvel administrateur créé depuis .env : {admin_email} (Role: ADMIN, Status: APPROVED).")
             return new_admin
 
     finally:
