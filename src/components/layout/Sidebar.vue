@@ -16,23 +16,47 @@ Rôle :
 -->
 
 <script setup>
-import { Home, FileEdit, Clock, LineChart, User, LogOut } from 'lucide-vue-next'
+import { computed } from 'vue'
+import { Home, FileEdit, Clock, LineChart, User, Users, LogOut } from 'lucide-vue-next'
 
 // --- Props et Événements ---
 // currentPage : nom de la page présentement visualisée (pour mise en surbrillance)
-const props = defineProps(['currentPage'])
+// user : profil utilisateur connecté (pour filtrage selon le rôle)
+// pendingCount : nombre de comptes en attente de validation pour badge admin
+const props = defineProps(['currentPage', 'user', 'pendingCount'])
 
 // Événements émis vers le composant parent App.vue
 const emit = defineEmits(['update:currentPage', 'logout'])
 
-// Configuration des éléments de la barre de navigation
-const navItems = [
-  { id: 'home', label: "Page d'Accueil", icon: Home },
-  { id: 'formulaire', label: 'Formulaires HSE', icon: FileEdit },
-  { id: 'historique', label: 'Historique Audits', icon: Clock },
-  { id: 'dashboard', label: 'Dashboard HSE', icon: LineChart },
-  { id: 'profile', label: 'Mon Profil', icon: User },
-]
+// Configuration dynamique des éléments de la barre de navigation
+const navItems = computed(() => {
+  const items = [
+    { id: 'home', label: "Page d'Accueil", icon: Home }
+  ]
+
+  // Formulaires HSE et Historique centralisés accessibles à tous les utilisateurs validés
+  items.push(
+    { id: 'formulaire', label: 'Formulaires HSE', icon: FileEdit },
+    { id: 'historique', label: 'Historique Audits', icon: Clock }
+  )
+
+  // Dashboard HSE accessible à tous les profils (USER et ADMIN)
+  items.push({ id: 'dashboard', label: 'Dashboard HSE', icon: LineChart })
+
+  // Menu de gestion des utilisateurs réservé aux administrateurs
+  if (props.user?.role === 'ADMIN') {
+    items.push({
+      id: 'admin-users',
+      label: 'Gestion Utilisateurs',
+      icon: Users,
+      badge: props.pendingCount || 0
+    })
+  }
+
+  // Profil personnel accessible à tous
+  items.push({ id: 'profile', label: 'Mon Profil', icon: User })
+  return items
+})
 </script>
 
 <template>
@@ -42,7 +66,9 @@ const navItems = [
       <div style="width: 40px; height: 40px; border-radius: 10px; background: var(--color-primary); color: #00141a; font-weight: 800; font-size: 1.4rem; display: flex; align-items: center; justify-content: center">P</div>
       <div>
         <div style="font-size: 1.05rem; font-weight: 800; color: #ffffff">PlatformActia</div>
-        <div style="font-size: 0.75rem; color: var(--color-primary); font-weight: 700">Responsable Portal</div>
+        <div style="font-size: 0.75rem; color: var(--color-primary); font-weight: 700">
+          {{ user?.role === 'ADMIN' ? 'Admin Portal' : 'Responsable Portal' }}
+        </div>
       </div>
     </div>
 
@@ -67,11 +93,19 @@ const navItems = [
           color: currentPage === item.id ? 'var(--color-primary)' : 'var(--text-muted)',
           borderLeft: currentPage === item.id ? '3px solid var(--color-primary)' : '3px solid transparent',
           transition: 'all 0.2s ease',
-          textAlign: 'left'
+          textAlign: 'left',
+          width: '100%'
         }"
       >
         <component :is="item.icon" :size="18" />
-        {{ item.label }}
+        <span style="flex: 1">{{ item.label }}</span>
+        <span
+          v-if="item.badge > 0"
+          style="background: #fbbf24; color: #00141a; font-size: 0.7rem; font-weight: 800; padding: 2px 7px; border-radius: 10px; line-height: 1"
+          title="Comptes en attente"
+        >
+          {{ item.badge }}
+        </span>
       </button>
     </nav>
 

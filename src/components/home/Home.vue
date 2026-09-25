@@ -15,11 +15,14 @@ Rôle :
 -->
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import {
   ShieldCheck, RotateCw, Lightbulb, Flame, Award, GraduationCap,
-  FileEdit, Clock, LineChart, Star, CheckCircle, ArrowRight
+  FileEdit, Clock, LineChart, Star, CheckCircle, ArrowRight, User, Users
 } from 'lucide-vue-next';
+
+// Props reçues depuis App.vue
+const props = defineProps(['user']);
 
 // Événement pour déclencher la navigation vers une autre vue dans App.vue
 const emit = defineEmits(['navigate']);
@@ -47,12 +50,21 @@ const rules = [
   { num: 10, text: 'Trier et trier correctement les <strong style="color: #fff">déchets dangereux</strong>.' }
 ];
 
-// Raccourcis d'accès rapide vers les modules clés
-const actionCards = [
-  { id: 'formulaire', title: 'Nouveau Formulaire', subtitle: 'Audit, Tournée & Permis', icon: FileEdit, bg: 'rgba(0,201,150,0.15)', color: 'var(--color-primary)' },
-  { id: 'historique', title: 'Historique Audits', subtitle: 'Consulter les fiches', icon: Clock, bg: 'rgba(168,224,99,0.15)', color: 'var(--color-accent-light)' },
-  { id: 'dashboard', title: 'Dashboard HSE', subtitle: 'Graphiques & KPIs', icon: LineChart, bg: 'rgba(59,130,246,0.15)', color: '#60a5fa' }
-];
+// Raccourcis d'accès rapide partagés et dynamiques selon le rôle RBAC
+const visibleActionCards = computed(() => {
+  const cards = [
+    { id: 'formulaire', title: 'Nouveau Formulaire', subtitle: 'Audit, Tournée & Permis', icon: FileEdit, bg: 'rgba(0,201,150,0.15)', color: 'var(--color-primary)' },
+    { id: 'historique', title: 'Historique Audits', subtitle: 'Consulter les fiches partagées', icon: Clock, bg: 'rgba(168,224,99,0.15)', color: 'var(--color-accent-light)' },
+    { id: 'dashboard', title: 'Dashboard HSE', subtitle: 'Graphiques & KPIs usine', icon: LineChart, bg: 'rgba(59,130,246,0.15)', color: '#60a5fa' }
+  ];
+
+  if (props.user?.role === 'ADMIN') {
+    cards.push({ id: 'admin-users', title: 'Gestion Utilisateurs', subtitle: 'Validation & RBAC', icon: Users, bg: 'rgba(244,63,94,0.15)', color: '#f43f5e' });
+  } else {
+    cards.push({ id: 'profile', title: 'Mon Profil', subtitle: 'Paramètres du compte', icon: User, bg: 'rgba(168,85,247,0.15)', color: '#c084fc' });
+  }
+  return cards;
+});
 
 // Présentation des 3 piliers fondateurs
 const pillars = [
@@ -163,7 +175,7 @@ onUnmounted(() => {
     <!-- CARTES D'ACCÈS RAPIDES AUX MODULES                                    -->
     <!-- ===================================================================== -->
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.25rem; margin-bottom: 2rem">
-      <div v-for="card in actionCards" :key="card.id" class="glass-card" style="display: flex; align-items: center; gap: 1.25rem; cursor: pointer; transition: transform 0.2s ease, border-color 0.2s ease" @click="emit('navigate', card.id)">
+      <div v-for="card in visibleActionCards" :key="card.id" class="glass-card" style="display: flex; align-items: center; gap: 1.25rem; cursor: pointer; transition: transform 0.2s ease, border-color 0.2s ease" @click="emit('navigate', card.id)">
         <div :style="{ width: '50px', height: '50px', borderRadius: '12px', background: card.bg, color: card.color, display: 'flex', alignItems: 'center', justifyContent: 'center' }">
           <component :is="card.icon" :size="26" />
         </div>

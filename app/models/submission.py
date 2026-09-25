@@ -27,9 +27,29 @@ Rôle :
 ===============================================================================
 """
 
-from sqlalchemy import Column, Integer, String, Float, Text, DateTime, ForeignKey, func
+import enum
+
+from sqlalchemy import Column, Integer, String, Float, Text, DateTime, ForeignKey, JSON, func
 from sqlalchemy.orm import relationship
 from app.db.base import Base
+
+
+# =============================================================================
+# ENUMS : CONFORMITÉ & ÉTAT DES ACTIONS CORRECTIVES
+# =============================================================================
+class Conformite(int, enum.Enum):
+    """Résultat d'évaluation d'un point de contrôle terrain."""
+    CONFORME = 1          # Le point est conforme aux exigences
+    NON_CONFORME = 0      # Non-conformité détectée
+    NON_APPLICABLE = -1   # Critère non applicable au contexte du secteur
+
+
+class EtatAction(str, enum.Enum):
+    """Cycle de vie d'une action corrective issue d'une non-conformité."""
+    NON_ENGAGEE = "non_engagee"   # Action en attente de démarrage
+    EN_COURS = "en_cours"         # Action en cours de réalisation
+    SOLDEE = "soldee"             # Action clôturée avec succès
+    EN_RETARD = "en_retard"       # Délai dépassé, action non terminée
 
 
 # =============================================================================
@@ -83,6 +103,9 @@ class FormSubmission(Base):
 
     # Relation vers l'utilisateur auteur de la fiche
     user = relationship("User", back_populates="submissions")
+
+    # Valeurs de champs personnalisés associées à cette soumission
+    custom_field_values = relationship("CustomFieldValue", back_populates="submission", cascade="all, delete-orphan")
 
 
 # =============================================================================
@@ -148,8 +171,8 @@ class AuditHSEItem(Base):
     # Libellé textuel de la question au moment de l'audit
     question_text = Column(Text, nullable=True)
 
-    # Évaluation : 1 = Conforme, 0 = Non conforme, -1 = Non Applicable (N/A)
-    conformite = Column(Integer, default=1, nullable=False)
+    # Évaluation : CONFORME(1), NON_CONFORME(0), NON_APPLICABLE(-1)
+    conformite = Column(Integer, default=Conformite.CONFORME.value, nullable=False)
 
     # --- Champs spécifiques en cas de non-conformité ---
     constat = Column(Text, nullable=True)             # Description détaillée de l'anomalie observée
@@ -157,7 +180,7 @@ class AuditHSEItem(Base):
     action_corrective = Column(Text, nullable=True)   # Mesure corrective décidée pour traiter l'anomalie
     responsable = Column(String(255), nullable=True)  # Porteur de l'action corrective
     delai = Column(String(50), nullable=True)         # Date limite d'exécution prévue
-    etat = Column(String(50), default="non_engagee", nullable=False)  # 'non_engagee', 'en_cours', 'soldee', 'en_retard'
+    etat = Column(String(50), default=EtatAction.NON_ENGAGEE.value, nullable=False)  # Enum: NON_ENGAGEE, EN_COURS, SOLDEE, EN_RETARD
     commentaire = Column(Text, nullable=True)         # Note ou observation complémentaire
 
     # Relation inverse vers la fiche d'audit parente
@@ -217,15 +240,15 @@ class TourneeHSEItem(Base):
     section_id = Column(Integer, nullable=False, default=1)
     question_text = Column(Text, nullable=True)
 
-    # Évaluation : 1 = Conforme, 0 = Non conforme, -1 = NA
-    conformite = Column(Integer, default=1, nullable=False)
+    # Évaluation : CONFORME(1), NON_CONFORME(0), NON_APPLICABLE(-1)
+    conformite = Column(Integer, default=Conformite.CONFORME.value, nullable=False)
 
     constat = Column(Text, nullable=True)
     photo_url = Column(Text, nullable=True)
     action_corrective = Column(Text, nullable=True)
     responsable = Column(String(255), nullable=True)
     delai = Column(String(50), nullable=True)
-    etat = Column(String(50), default="non_engagee", nullable=False)
+    etat = Column(String(50), default=EtatAction.NON_ENGAGEE.value, nullable=False)  # Enum: NON_ENGAGEE, EN_COURS, SOLDEE, EN_RETARD
     commentaire = Column(Text, nullable=True)
 
     tournee = relationship("TourneeHSESubmission", back_populates="items")
@@ -254,6 +277,9 @@ class PermisTravailSubmission(FormSubmission):
 
     # Remarques particulières et mesures de sécurité spécifiques prescrites
     remarques_specifiques = Column(Text, nullable=True)
+
+    # Champs dynamiques personnalisés et standards configurés (liste JSON)
+    dynamic_fields = Column(JSON, nullable=True)
 
     __mapper_args__ = {
         "polymorphic_identity": "permis_travail",
@@ -400,3 +426,78 @@ class AccidentTravailMonthlyItem(Base):
 
     # Relation inverse vers la soumission annuelle parente
     submission = relationship("AccidentTravailSubmission", back_populates="monthly_items")
+
+
+# =============================================================================
+# 10. TABLE : CUSTOM_FIELD_DEFINITIONS (Catalogue des Champs Personnalisés)
+# =============================================================================
+class CustomFieldDefinition(Base):
+    """
+    Catalogue partagé des champs personnalisés créés par les managers.
+    Chaque définition est réutilisable par tous les utilisateurs : quand un manager
+    crée le champ « Extincteurs vérifiés », tous les autres le voient dans leur dropdown.
+    """
+    __tablename__ = "custom_field_definitions"
+
+    # Identifiant unique du champ personnalisé
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Nom lisible du champ (ex: 'Extincteurs vérifiés', 'Nom du sous-traitant')
+    name = Column(String(255), nullable=False)
+
+    # Type de données : 'numeric' (chiffres, calculs) ou 'text' (texte libre)
+    field_type = Column(String(50), nullable=False, default="numeric")
+
+    # Unité de mesure ou descripteur (ex: 'Unités', 'Permis délivrés', 'Texte')
+    unit = Column(String(100), nullable=True, default="")
+
+    # Type de formulaire auquel ce champ est rattaché ('permis_travail', 'audit_hse', 'all')
+    form_type = Column(String(50), nullable=False, default="permis_travail", index=True)
+
+    # Identifiant du manager ayant créé ce champ (NULL si champ système)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    # Horodatage de création
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # --- Relations ORM ---
+    # Toutes les valeurs saisies pour ce champ à travers les soumissions
+    values = relationship("CustomFieldValue", back_populates="field_def", cascade="all, delete-orphan")
+
+    # Utilisateur créateur
+    creator = relationship("User", foreign_keys=[created_by])
+
+
+# =============================================================================
+# 11. TABLE : CUSTOM_FIELD_VALUES (Valeurs par Soumission)
+# =============================================================================
+class CustomFieldValue(Base):
+    """
+    Stocke la valeur d'un champ personnalisé pour une soumission donnée.
+    Sépare numeric_value et text_value pour permettre les agrégations SQL
+    (AVG, SUM, COUNT) sur les champs numériques depuis le Dashboard.
+    """
+    __tablename__ = "custom_field_values"
+
+    # Identifiant unique de la valeur
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Soumission parente (pointe vers form_submissions pour supporter TOUS les types)
+    submission_id = Column(Integer, ForeignKey("form_submissions.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # Définition du champ personnalisé associé
+    field_id = Column(Integer, ForeignKey("custom_field_definitions.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # Valeur numérique (utilisée quand field_type = 'numeric') — permet AVG, SUM, GROUP BY en SQL
+    numeric_value = Column(Float, nullable=True)
+
+    # Valeur textuelle (utilisée quand field_type = 'text')
+    text_value = Column(Text, nullable=True)
+
+    # Horodatage de création
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # --- Relations ORM ---
+    field_def = relationship("CustomFieldDefinition", back_populates="values")
+    submission = relationship("FormSubmission", back_populates="custom_field_values")
+

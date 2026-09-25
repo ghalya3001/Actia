@@ -10,17 +10,19 @@ Rôle :
 
 Modèles exposés :
   - Utilisateurs et Sécurité : User, UserSession, PwdResetRequest
-  - Modèle historique d'audit : HSEAudit
+  - Enums de domaine : UserRole, UserStatus, Conformite, EtatAction
   - Formulaires et Contrôles terrain : FormSubmission, AuditHSESubmission,
     AuditHSEItem, TourneeHSESubmission, TourneeHSEItem, PermisTravailSubmission,
     PhotoStorage, AccidentTravailSubmission, AccidentTravailMonthlyItem
+  - Champs personnalisés : CustomFieldDefinition, CustomFieldValue
   - Pilotage et Dashboard : KPIDefinition, KPISnapshot, DashboardWidget
 ===============================================================================
 """
 
-from app.models.user import User, UserSession, PwdResetRequest
-from app.models.audit import HSEAudit
+from app.models.user import User, UserSession, PwdResetRequest, UserRole, UserStatus
 from app.models.submission import (
+    Conformite,
+    EtatAction,
     FormSubmission,
     AuditHSESubmission,
     AuditHSEItem,
@@ -30,6 +32,8 @@ from app.models.submission import (
     PhotoStorage,
     AccidentTravailSubmission,
     AccidentTravailMonthlyItem,
+    CustomFieldDefinition,
+    CustomFieldValue,
 )
 from app.models.dashboard import (
     KPIDefinition,
@@ -41,7 +45,10 @@ __all__ = [
     "User",
     "UserSession",
     "PwdResetRequest",
-    "HSEAudit",
+    "UserRole",
+    "UserStatus",
+    "Conformite",
+    "EtatAction",
     "FormSubmission",
     "AuditHSESubmission",
     "AuditHSEItem",
@@ -51,7 +58,10 @@ __all__ = [
     "PhotoStorage",
     "AccidentTravailSubmission",
     "AccidentTravailMonthlyItem",
+    "CustomFieldDefinition",
+    "CustomFieldValue",
     "KPIDefinition",
     "KPISnapshot",
     "DashboardWidget",
 ]
+

@@ -203,29 +203,70 @@ const monthsList = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juil
       <!-- CAS 2 : VUE PERMIS DE TRAVAIL                                          -->
       <!-- ======================================================================= -->
       <div v-else-if="isPermis">
-        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 1.5rem;">
-          <!-- Compteur Plans de Prévention -->
-          <div style="background: rgba(0,24,32,0.8); border: 1px solid var(--card-border); padding: 16px; border-radius: 10px; text-align: center; border-top: 3px solid #3b82f6;">
-            <div style="font-size: 0.75rem; color: var(--text-dim); text-transform: uppercase;">Plan de Prévention</div>
-            <div style="font-size: 1.8rem; font-weight: 800; color: #60a5fa; font-family: var(--font-mono); margin-top: 4px;">{{ items.plan_prevention || 0 }}</div>
-          </div>
-          <!-- Compteur Permis Travail en Hauteur -->
-          <div style="background: rgba(0,24,32,0.8); border: 1px solid var(--card-border); padding: 16px; border-radius: 10px; text-align: center; border-top: 3px solid #ea580c;">
-            <div style="font-size: 0.75rem; color: var(--text-dim); text-transform: uppercase;">Permis Travail Hauteur</div>
-            <div style="font-size: 1.8rem; font-weight: 800; color: #fb923c; font-family: var(--font-mono); margin-top: 4px;">{{ items.permis_hauteur || 0 }}</div>
-          </div>
-          <!-- Compteur Permis de Feu -->
-          <div style="background: rgba(0,24,32,0.8); border: 1px solid var(--card-border); padding: 16px; border-radius: 10px; text-align: center; border-top: 3px solid #dc2626;">
-            <div style="font-size: 0.75rem; color: var(--text-dim); text-transform: uppercase;">Permis de Feu</div>
-            <div style="font-size: 1.8rem; font-weight: 800; color: #f87171; font-family: var(--font-mono); margin-top: 4px;">{{ items.permis_feu || 0 }}</div>
-          </div>
-        </div>
+        <!-- Cas avec champs dynamiques enregistrés -->
+        <template v-if="items.dynamic_fields && items.dynamic_fields.length > 0">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 1.5rem;">
+            <div 
+              v-for="(f, i) in items.dynamic_fields" 
+              :key="i"
+              style="background: rgba(0,24,32,0.85); border: 1px solid var(--card-border); padding: 14px; border-radius: 10px; display: flex; flex-direction: column; justify-content: space-between;"
+              :style="{
+                borderTop: f.type === 'numeric' ? '3px solid #3b82f6' : '3px solid #10b981',
+                gridColumn: (f.fieldId === 'remarques' || (f.type === 'char' && String(f.value).length > 60)) ? '1 / -1' : 'auto'
+              }"
+            >
+              <div>
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 4px;">
+                  <span style="font-size: 0.75rem; color: var(--text-dim); text-transform: uppercase; font-weight: 700;">{{ f.label }}</span>
+                  <span :style="{ fontSize: '0.62rem', fontWeight: '800', textTransform: 'uppercase', padding: '1px 5px', borderRadius: '4px', background: f.type === 'numeric' ? 'rgba(59,130,246,0.15)' : 'rgba(16,185,129,0.15)', color: f.type === 'numeric' ? '#60a5fa' : '#34d399', border: f.type === 'numeric' ? '1px solid rgba(59,130,246,0.3)' : '1px solid rgba(16,185,129,0.3)' }">
+                    {{ f.type === 'numeric' ? 'NUM' : 'TXT' }}
+                  </span>
+                </div>
+                <div v-if="f.unit" style="font-size: 0.68rem; color: var(--text-muted);">{{ f.unit }}</div>
+              </div>
 
-        <!-- Remarques spécifiques aux permis -->
-        <div v-if="items.remarques" style="background: rgba(0,24,32,0.8); border: 1px solid var(--card-border); padding: 12px 16px; border-radius: 10px; border-left: 4px solid #3b82f6; margin-bottom: 1rem;">
-          <div style="font-size: 0.78rem; font-weight: 700; color: #60a5fa; text-transform: uppercase; margin-bottom: 4px;">Remarques spécifiques Permis :</div>
-          <div style="font-size: 0.9rem; color: var(--text-main); line-height: 1.5;">{{ items.remarques }}</div>
-        </div>
+              <div style="margin-top: 10px;">
+                <template v-if="f.type === 'numeric'">
+                  <div style="font-size: 1.7rem; font-weight: 800; color: #60a5fa; font-family: var(--font-mono);">
+                    {{ f.value !== '' && f.value !== null && f.value !== undefined ? f.value : 0 }}
+                  </div>
+                </template>
+                <template v-else>
+                  <div style="font-size: 0.88rem; color: var(--text-main); white-space: pre-wrap; line-height: 1.45;">
+                    {{ f.value || '—' }}
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- Cas hérité (anciens audits sans dynamic_fields) -->
+        <template v-else>
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 1.5rem;">
+            <!-- Compteur Plans de Prévention -->
+            <div style="background: rgba(0,24,32,0.8); border: 1px solid var(--card-border); padding: 16px; border-radius: 10px; text-align: center; border-top: 3px solid #3b82f6;">
+              <div style="font-size: 0.75rem; color: var(--text-dim); text-transform: uppercase;">Plan de Prévention</div>
+              <div style="font-size: 1.8rem; font-weight: 800; color: #60a5fa; font-family: var(--font-mono); margin-top: 4px;">{{ items.plan_prevention || 0 }}</div>
+            </div>
+            <!-- Compteur Permis Travail en Hauteur -->
+            <div style="background: rgba(0,24,32,0.8); border: 1px solid var(--card-border); padding: 16px; border-radius: 10px; text-align: center; border-top: 3px solid #ea580c;">
+              <div style="font-size: 0.75rem; color: var(--text-dim); text-transform: uppercase;">Permis Travail Hauteur</div>
+              <div style="font-size: 1.8rem; font-weight: 800; color: #fb923c; font-family: var(--font-mono); margin-top: 4px;">{{ items.permis_hauteur || 0 }}</div>
+            </div>
+            <!-- Compteur Permis de Feu -->
+            <div style="background: rgba(0,24,32,0.8); border: 1px solid var(--card-border); padding: 16px; border-radius: 10px; text-align: center; border-top: 3px solid #dc2626;">
+              <div style="font-size: 0.75rem; color: var(--text-dim); text-transform: uppercase;">Permis de Feu</div>
+              <div style="font-size: 1.8rem; font-weight: 800; color: #f87171; font-family: var(--font-mono); margin-top: 4px;">{{ items.permis_feu || 0 }}</div>
+            </div>
+          </div>
+
+          <!-- Remarques spécifiques aux permis -->
+          <div v-if="items.remarques" style="background: rgba(0,24,32,0.8); border: 1px solid var(--card-border); padding: 12px 16px; border-radius: 10px; border-left: 4px solid #3b82f6; margin-bottom: 1rem;">
+            <div style="font-size: 0.78rem; font-weight: 700; color: #60a5fa; text-transform: uppercase; margin-bottom: 4px;">Remarques spécifiques Permis :</div>
+            <div style="font-size: 0.9rem; color: var(--text-main); line-height: 1.5;">{{ items.remarques }}</div>
+          </div>
+        </template>
       </div>
       
       <!-- ======================================================================= -->

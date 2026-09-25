@@ -20,9 +20,10 @@ Rôle :
 from typing import List, Any, Optional, Dict
 from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, get_current_user
+from app.api.deps import get_db, get_current_approved_user
 from app.models.user import User
 from app.models.dashboard import KPIDefinition, KPISnapshot, DashboardWidget
 from app.services.kpi_service import KPIService
@@ -116,7 +117,7 @@ class DashboardWidgetUpdate(BaseModel):
 )
 def get_kpi_definitions(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_approved_user)
 ) -> Any:
     """
     Retourne l'ensemble des définitions de KPIs actives, triées selon leur ordre d'affichage.
@@ -136,7 +137,7 @@ def get_kpi_definitions(
 )
 def get_user_snapshots(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_approved_user)
 ) -> Any:
     """
     Récupère instantanément depuis 'kpi_snapshots' l'ensemble des valeurs numériques
@@ -144,15 +145,25 @@ def get_user_snapshots(
     Si aucun snapshot n'est présent, un calcul initial est immédiatement exécuté.
     """
     KPIService.ensure_default_kpi_definitions(db)
-    snapshots = db.query(KPISnapshot).filter(KPISnapshot.user_id == current_user.id).all()
+    snapshots = db.query(KPISnapshot).filter(
+        or_(KPISnapshot.user_id == current_user.id, KPISnapshot.user_id.is_(None))
+    ).all()
 
-    # Si la table de cache est vide pour cet utilisateur, déclencher un premier calcul
+    # Si la table de cache est vide pour cet utilisateur, déclencher un premier calcul centralisé
     if not snapshots:
-        KPIService.recalculate_kpis_for_user(current_user.id)
-        snapshots = db.query(KPISnapshot).filter(KPISnapshot.user_id == current_user.id).all()
+        KPIService.recalculate_kpis_for_user()
+        snapshots = db.query(KPISnapshot).filter(
+            or_(KPISnapshot.user_id == current_user.id, KPISnapshot.user_id.is_(None))
+        ).all()
+
+    # Déduplication par kpi_id en privilégiant le snapshot spécifique utilisateur s'il existe
+    unique_snapshots = {}
+    for s in snapshots:
+        if s.kpi_id not in unique_snapshots or s.user_id is not None:
+            unique_snapshots[s.kpi_id] = s
 
     result = []
-    for s in snapshots:
+    for s in unique_snapshots.values():
         kpi = s.kpi_def
         result.append(KPISnapshotOut(
             id=s.id,
@@ -177,7 +188,7 @@ def get_user_snapshots(
 )
 def get_user_widgets(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_approved_user)
 ) -> Any:
     """
     Retourne la disposition actuelle des widgets du tableau de bord.
@@ -209,7 +220,7 @@ def get_user_widgets(
         kdef = w.kpi_def
         snap = db.query(KPISnapshot).filter(
             KPISnapshot.kpi_id == w.kpi_id,
-            KPISnapshot.user_id == current_user.id
+            or_(KPISnapshot.user_id == current_user.id, KPISnapshot.user_id.is_(None))
         ).first()
 
         res.append(DashboardWidgetOut(
@@ -241,7 +252,7 @@ def get_user_widgets(
 def add_widget(
     widget_in: DashboardWidgetCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_approved_user)
 ) -> Any:
     """
     Enregistre un nouveau widget positionné sur la grille du manager.
@@ -284,7 +295,7 @@ def update_widget(
     widget_id: int,
     widget_in: DashboardWidgetUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_approved_user)
 ) -> Any:
     """
     Met à jour les coordonnées X, Y ou les dimensions Width, Height du widget spécifié.
@@ -312,7 +323,7 @@ def update_widget(
 def delete_widget(
     widget_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_approved_user)
 ) -> Any:
     """
     Retire le widget de la vue du manager sans supprimer la définition du KPI associée.

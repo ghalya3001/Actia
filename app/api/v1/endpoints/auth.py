@@ -39,10 +39,11 @@ from app.core.security import (
     generate_refresh_token,
     generate_otp_code,
 )
-from app.models.user import User, UserSession, PwdResetRequest
+from app.models.user import User, UserSession, PwdResetRequest, UserRole, UserStatus
 from app.schemas.user import (
     UserCreate,
     UserResponse,
+    UserProfileUpdate,
     Token,
     RefreshTokenRequest,
     ChangePasswordRequest,
@@ -98,6 +99,8 @@ def register_manager(
         email=user_in.email,
         full_name=user_in.full_name,
         hashed_password=hash_password(user_in.password),
+        role=UserRole.USER.value,
+        status=UserStatus.PENDING.value,
         is_active=True
     )
     db.add(new_user)
@@ -163,7 +166,10 @@ def login(
     return Token(
         access_token=access_token,
         refresh_token=raw_refresh_token,
-        token_type="bearer"
+        token_type="bearer",
+        role=user.role,
+        status=user.status,
+        rejection_reason=user.rejection_reason
     )
 
 
@@ -234,7 +240,10 @@ def refresh_token(
     return Token(
         access_token=new_access_token,
         refresh_token=new_raw_refresh,
-        token_type="bearer"
+        token_type="bearer",
+        role=user.role,
+        status=user.status,
+        rejection_reason=user.rejection_reason
     )
 
 
@@ -315,6 +324,26 @@ def read_current_user(
     """
     Retourne l'identité du manager connecté (nom, email, statut actif, date d'inscription).
     """
+    return current_user
+
+
+@router.patch(
+    "/me",
+    response_model=UserResponse,
+    summary="Mise à jour des informations de profil personnel"
+)
+def update_current_user(
+    body: UserProfileUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> Any:
+    """
+    Permet à l'utilisateur connecté de modifier son nom et prénom.
+    """
+    if body.full_name is not None and body.full_name.strip():
+        current_user.full_name = body.full_name.strip()
+        db.commit()
+        db.refresh(current_user)
     return current_user
 
 

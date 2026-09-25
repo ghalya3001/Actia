@@ -46,6 +46,8 @@ from app.models.submission import (
     PhotoStorage,
     AccidentTravailSubmission,
     AccidentTravailMonthlyItem,
+    CustomFieldDefinition,
+    CustomFieldValue,
 )
 from app.schemas.audit import HSEAuditCreate, HSEAuditUpdate
 
@@ -196,9 +198,14 @@ class SubmissionService:
                 nb_permis_hauteur=int(items_d.get("permis_hauteur") or 0),
                 nb_permis_feu=int(items_d.get("permis_feu") or 0),
                 remarques_specifiques=str(items_d.get("remarques") or ""),
+                dynamic_fields=items_d.get("dynamic_fields") or None,
             )
             db.add(submission)
             db.flush()
+
+            # Enregistrement relationnel dans la table custom_field_values
+            if items_d.get("dynamic_fields"):
+                cls._save_custom_field_values(db, submission.id, items_d.get("dynamic_fields"))
 
         # --- CAS 4 : SUIVI DES ACCIDENTS DE TRAVAIL ET STATISTIQUES HSE ---
         elif target_type == "statistiques_accidents":
@@ -439,14 +446,77 @@ class SubmissionService:
                 db.add(photo_entry)
 
     @classmethod
-    def get_submission_by_id(cls, db: Session, audit_id: int, user_id: int) -> Dict[str, Any]:
+    def _save_custom_field_values(cls, db: Session, submission_id: int, dynamic_fields: Any):
+        """
+        Enregistre les valeurs des champs personnalisés dans la table normalisée custom_field_values.
+        Pour chaque champ personnalisé reçu :
+          1. Retrouve ou crée la définition du champ dans le catalogue partagé (custom_field_definitions)
+          2. Insère la valeur typée (numeric_value pour les calculs SQL / text_value pour le texte)
+        """
+        if not dynamic_fields or not isinstance(dynamic_fields, list):
+            return
+
+        # Supprimer les anciennes valeurs de cette soumission pour réécriture propre
+        db.query(CustomFieldValue).filter(CustomFieldValue.submission_id == submission_id).delete()
+
+        for f in dynamic_fields:
+            if not isinstance(f, dict):
+                continue
+
+            label = str(f.get("label") or f.get("name") or "").strip()
+            if not label:
+                continue
+
+            field_type = "numeric" if f.get("type") in ("numeric", "number") else "text"
+            unit = str(f.get("unit") or "").strip()
+            raw_val = f.get("value")
+
+            # 1. Retrouver ou créer la définition dans le catalogue partagé
+            field_def = db.query(CustomFieldDefinition).filter(
+                CustomFieldDefinition.name == label,
+                CustomFieldDefinition.form_type == "permis_travail"
+            ).first()
+
+            if not field_def:
+                field_def = CustomFieldDefinition(
+                    name=label,
+                    field_type=field_type,
+                    unit=unit,
+                    form_type="permis_travail"
+                )
+                db.add(field_def)
+                db.flush()
+
+            # 2. Convertir la valeur selon le type
+            num_val = None
+            txt_val = None
+            if field_type == "numeric":
+                try:
+                    num_val = float(raw_val) if raw_val is not None and str(raw_val).strip() != "" else 0.0
+                except (ValueError, TypeError):
+                    num_val = 0.0
+            else:
+                txt_val = str(raw_val) if raw_val is not None else ""
+
+            # 3. Insérer la valeur relationnelle
+            val_obj = CustomFieldValue(
+                submission_id=submission_id,
+                field_id=field_def.id,
+                numeric_value=num_val,
+                text_value=txt_val
+            )
+            db.add(val_obj)
+
+    @classmethod
+    def get_submission_by_id(cls, db: Session, audit_id: int, user_id: Optional[int] = None) -> Dict[str, Any]:
         """
         Recherche une soumission par son identifiant et reconstitue son dictionnaire `items_data`.
+        Toutes les fiches sont partagées et centralisées pour l'ensemble des utilisateurs de l'usine.
 
         Args:
             db (Session): Session BDD.
             audit_id (int): Identifiant unique de l'audit.
-            user_id (int): Identifiant de l'utilisateur propriétaire.
+            user_id (Optional[int]): Optionnel (non restrictif pour permettre la vue partagée).
 
         Raises:
             HTTPException: Si l'audit est introuvable (erreur 404).
@@ -454,10 +524,7 @@ class SubmissionService:
         Returns:
             Dict[str, Any]: Données complètes de la soumission.
         """
-        sub = db.query(FormSubmission).filter(
-            FormSubmission.id == audit_id,
-            FormSubmission.user_id == user_id
-        ).first()
+        sub = db.query(FormSubmission).filter(FormSubmission.id == audit_id).first()
 
         if not sub:
             raise HTTPException(
@@ -470,7 +537,7 @@ class SubmissionService:
     def get_all_submissions(
         cls,
         db: Session,
-        user_id: int,
+        user_id: Optional[int] = None,
         date_audit: Optional[str] = None,
         date_from: Optional[str] = None,
         date_to: Optional[str] = None,
@@ -478,14 +545,19 @@ class SubmissionService:
         secteur: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
-        Récupère l'ensemble des soumissions de l'utilisateur avec application
+        Récupère l'ensemble des soumissions centralisées de l'usine avec application
         de critères de filtrage optionnels (dates, type de formulaire, secteur).
+        Toutes les fiches saisies par n'importe quel utilisateur sont visibles par tous.
 
         Returns:
             List[Dict[str, Any]]: Liste des soumissions prêtes pour le frontend.
         """
-        # Requête de base sur la table mère polymorphique
-        query = db.query(FormSubmission).filter(FormSubmission.user_id == user_id)
+        # Requête de base sur la table mère polymorphique (données centralisées pour tous)
+        query = db.query(FormSubmission)
+
+        # Filtre optionnel si un utilisateur spécifique est expressément demandé
+        if user_id is not None:
+            query = query.filter(FormSubmission.user_id == user_id)
 
         # Filtre par date exacte
         if date_audit:
@@ -516,15 +588,13 @@ class SubmissionService:
 
     @classmethod
     def update_submission(
-        cls, db: Session, audit_id: int, audit_in: HSEAuditUpdate, user_id: int
+        cls, db: Session, audit_id: int, audit_in: HSEAuditUpdate, user_id: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         Met à jour une soumission existante et synchronise en cascade ses points de contrôle.
+        Accessible pour l'ensemble des fiches partagées de la plateforme.
         """
-        sub = db.query(FormSubmission).filter(
-            FormSubmission.id == audit_id,
-            FormSubmission.user_id == user_id
-        ).first()
+        sub = db.query(FormSubmission).filter(FormSubmission.id == audit_id).first()
 
         if not sub:
             raise HTTPException(
@@ -563,6 +633,9 @@ class SubmissionService:
                     sub.nb_permis_feu = int(items_d["permis_feu"] or 0)
                 if "remarques" in items_d:
                     sub.remarques_specifiques = str(items_d["remarques"] or "")
+                if "dynamic_fields" in items_d:
+                    sub.dynamic_fields = items_d["dynamic_fields"]
+                    cls._save_custom_field_values(db, sub.id, items_d["dynamic_fields"])
             elif isinstance(sub, AccidentTravailSubmission):
                 items_d = update_data["items_data"]
                 if "annee" in items_d:
@@ -583,16 +656,13 @@ class SubmissionService:
         return cls.submission_to_dict(sub)
 
     @classmethod
-    def delete_submission(cls, db: Session, audit_id: int, user_id: int) -> bool:
+    def delete_submission(cls, db: Session, audit_id: int, user_id: Optional[int] = None) -> bool:
         """
         Supprime définitivement une soumission.
         Grâce aux contraintes ON DELETE CASCADE, les tables filles et items
         sont automatiquement nettoyés par PostgreSQL.
         """
-        sub = db.query(FormSubmission).filter(
-            FormSubmission.id == audit_id,
-            FormSubmission.user_id == user_id
-        ).first()
+        sub = db.query(FormSubmission).filter(FormSubmission.id == audit_id).first()
 
         if not sub:
             raise HTTPException(
@@ -608,8 +678,12 @@ class SubmissionService:
     def submission_to_dict(cls, sub: FormSubmission) -> Dict[str, Any]:
         """
         Reconstitue l'objet retourné exactement au format `HSEAuditOut` attendu
-        par le frontend Vue 3, avec l'arborescence complète du dictionnaire `items_data`.
+        par le frontend Vue 3, avec l'arborescence complète du dictionnaire `items_data`
+        et le nom de l'auteur pour la vue partagée.
         """
+        # Nom de l'auteur pour affichage clair dans l'historique partagé
+        author_name = sub.user.full_name if (hasattr(sub, "user") and sub.user) else None
+
         # Base commune de toutes les soumissions
         data: Dict[str, Any] = {
             "id": sub.id,
@@ -621,6 +695,7 @@ class SubmissionService:
             "commentaires_generaux": sub.commentaires_generaux,
             "taux_conformite": sub.taux_conformite,
             "user_id": sub.user_id,
+            "author_name": author_name,
             "created_at": sub.created_at,
         }
 
@@ -684,11 +759,31 @@ class SubmissionService:
             data["count_en_cours"] = 0
             data["count_en_retard"] = 0
 
+            # Reconstitution depuis la table normalisée custom_field_values
+            cf_list = []
+            if hasattr(sub, "custom_field_values") and sub.custom_field_values:
+                for cv in sub.custom_field_values:
+                    fdef = cv.field_def
+                    if fdef:
+                        cf_list.append({
+                            "fieldId": f"custom_{fdef.id}",
+                            "label": fdef.name,
+                            "type": fdef.field_type,
+                            "value": cv.numeric_value if fdef.field_type == "numeric" else cv.text_value,
+                            "unit": fdef.unit or "",
+                            "isCustom": True,
+                        })
+
+            # Repli sur le JSON historique si aucune valeur relationnelle
+            if not cf_list:
+                cf_list = sub.dynamic_fields or []
+
             data["items_data"] = {
                 "plan_prevention": sub.nb_plan_prevention,
                 "permis_hauteur": sub.nb_permis_hauteur,
                 "permis_feu": sub.nb_permis_feu,
                 "remarques": sub.remarques_specifiques or "",
+                "dynamic_fields": cf_list,
             }
 
         # --- Reconstitution pour le Bilan des Accidents de Travail ---

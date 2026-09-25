@@ -23,7 +23,7 @@ from typing import List, Any, Optional
 from fastapi import APIRouter, Depends, status, BackgroundTasks
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, get_current_user
+from app.api.deps import get_db, get_current_approved_user
 from app.models.user import User
 from app.schemas.audit import HSEAuditCreate, HSEAuditUpdate, HSEAuditOut, HSEAuditStats
 from app.services.submission_service import SubmissionService
@@ -45,7 +45,7 @@ def create_audit(
     audit_in: HSEAuditCreate,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_approved_user)
 ) -> Any:
     """
     [CREATE] Enregistre une nouvelle fiche HSE.
@@ -68,22 +68,22 @@ def create_audit(
         user_id=current_user.id
     )
 
-    # Déclenchement non-bloquant du recalcul des KPIs impactés pour ce manager
+    # Déclenchement non-bloquant du recalcul centralisé des KPIs pour toute l'usine
     background_tasks.add_task(
         KPIService.recalculate_kpis_for_user,
-        user_id=current_user.id
+        user_id=None
     )
 
     return submission_data
 
 
 # =============================================================================
-# 2. LECTURE ET FILTRAGE DES FORMULAIRES DU MANAGER
+# 2. LECTURE ET FILTRAGE DES FORMULAIRES DE L'USINE (DONNÉES CENTRALISÉES)
 # =============================================================================
 @router.get(
     "/",
     response_model=List[HSEAuditOut],
-    summary="Récupérer et filtrer la liste des fiches du responsable connecté"
+    summary="Récupérer et filtrer la liste des fiches de l'ensemble de l'usine"
 )
 def get_user_audits(
     date_audit: Optional[str] = None,
@@ -92,10 +92,11 @@ def get_user_audits(
     form_type: Optional[str] = None,
     secteur: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_approved_user)
 ) -> Any:
     """
-    [READ ALL & FILTER] Retourne l'historique complet des fiches réalisées par le manager.
+    [READ ALL & FILTER] Retourne l'historique centralisé de toutes les fiches de l'usine.
+    Accessible par tous les utilisateurs connectés.
     Supporte les filtres combinables :
       - `date_audit` : Date exacte (YYYY-MM-DD).
       - `date_from` / `date_to` : Intervalle chronologique.
@@ -104,7 +105,7 @@ def get_user_audits(
     """
     return SubmissionService.get_all_submissions(
         db=db,
-        user_id=current_user.id,
+        user_id=None,
         date_audit=date_audit,
         date_from=date_from,
         date_to=date_to,
@@ -114,23 +115,23 @@ def get_user_audits(
 
 
 # =============================================================================
-# 3. STATISTIQUES CONSOLIDÉES POUR LE TABLEAU DE BORD
+# 3. STATISTIQUES CONSOLIDÉES CENTRALISÉES POUR LE TABLEAU DE BORD
 # =============================================================================
 @router.get(
     "/stats",
     response_model=HSEAuditStats,
-    summary="Obtenir les indicateurs statistiques consolidés"
+    summary="Obtenir les indicateurs statistiques consolidés de l'usine"
 )
 def get_audit_stats(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_approved_user)
 ) -> Any:
     """
-    [READ STATS] Fournit un résumé chiffré instantané (total audits, taux moyen de conformité,
-    répartition des actions : soldées, non engagées, en cours, en retard).
+    [READ STATS] Fournit un résumé chiffré instantané global (total audits, taux moyen de conformité,
+    répartition des actions : soldées, non engagées, en cours, en retard) pour toute l'usine.
     Lit en priorité la table de cache `kpi_snapshots`.
     """
-    return KPIService.get_user_stats(db=db, user_id=current_user.id)
+    return KPIService.get_user_stats(db=db, user_id=None)
 
 
 # =============================================================================
@@ -144,7 +145,7 @@ def get_audit_stats(
 def get_audit_by_id(
     audit_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_approved_user)
 ) -> Any:
     """
     [READ ONE] Récupère une fiche avec son arborescence de questions, constats et photos.
@@ -170,7 +171,7 @@ def update_audit(
     audit_in: HSEAuditUpdate,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_approved_user)
 ) -> Any:
     """
     [UPDATE] Met à jour les métadonnées ou le statut des actions correctives.
@@ -183,10 +184,10 @@ def update_audit(
         user_id=current_user.id
     )
 
-    # Recalcul asynchrone des indicateurs du dashboard
+    # Recalcul asynchrone des indicateurs du dashboard pour toute l'usine
     background_tasks.add_task(
         KPIService.recalculate_kpis_for_user,
-        user_id=current_user.id
+        user_id=None
     )
 
     return updated_data
@@ -204,7 +205,7 @@ def delete_audit(
     audit_id: int,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_approved_user)
 ) -> Any:
     """
     [DELETE] Supprime définitivement la fiche et ses lignes d'évaluation en cascade.
@@ -216,10 +217,10 @@ def delete_audit(
         user_id=current_user.id
     )
 
-    # Recalcul en arrière-plan pour déduire la fiche supprimée des statistiques
+    # Recalcul en arrière-plan pour déduire la fiche supprimée des statistiques de toute l'usine
     background_tasks.add_task(
         KPIService.recalculate_kpis_for_user,
-        user_id=current_user.id
+        user_id=None
     )
 
     return {"message": f"La fiche ID {audit_id} a été supprimée avec succès."}

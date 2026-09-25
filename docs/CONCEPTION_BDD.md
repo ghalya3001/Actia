@@ -418,6 +418,8 @@ Chaque tableau dispose de ses règles métiers strictes, implémentées avec pro
 | `tournee_hse_submissions` | Table Enfant (`form_submissions.id`) | Fiches de Tournée HSE (FGSI-010) et statistiques terrain. |
 | `tournee_hse_items` | Table Détail (`tournee_hse_submissions.id`) | Points de contrôle de la tournée (101 à 142) et actions correctives. |
 | `permis_travail_submissions` | Table Enfant (`form_submissions.id`) | Fiches Permis de Travail (plans prévention, hauteur, feu). |
+| `custom_field_definitions` | Catalogue Partagé (`users.id`) | Référentiel des champs personnalisés créés (nom, type 'numeric'/'text', unité, formulaire). |
+| `custom_field_values` | Table Détail (`form_submissions.id`, `custom_field_definitions.id`) | Valeurs saisies typées (numeric_value pour calculs SQL / text_value) par soumission. |
 | `photo_storage` | Table Multimédia | Registre centralisé des photos rattachées aux constats d'audit et tournée. |
 | `accident_travail_submissions` | Table Enfant (`form_submissions.id`) | Entête annuelle consolidée : accidents, TF, IF, TG, IG et cibles cibles. |
 | `accident_travail_monthly_items` | Table Détail 1 $\rightarrow$ 12 | 12 enregistrements mensuels : accidents détaillés, heures, salariés, valeurs TF/IF/TG/IG. |

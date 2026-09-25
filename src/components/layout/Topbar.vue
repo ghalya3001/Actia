@@ -13,7 +13,7 @@ Rôle :
 
 <script setup>
 import { computed } from 'vue'
-import { User, ChevronDown } from 'lucide-vue-next'
+import { ChevronDown } from 'lucide-vue-next'
 
 // Props reçues depuis App.vue :
 // - currentPage : page active pour adapter le titre
@@ -29,6 +29,7 @@ const titles = {
   formulaire: `Formulaires <span style="color: var(--color-primary)">HSE</span>`,
   historique: `Historique des <span style="color: var(--color-primary)">Audits & Formulaires</span>`,
   dashboard: `Dashboard <span style="color: var(--color-primary)">HSE</span>`,
+  'admin-users': `Gestion des <span style="color: var(--color-primary)">Utilisateurs (Admin)</span>`,
   profile: `Mon <span style="color: var(--color-primary)">Profil</span>`
 }
 
@@ -55,8 +56,26 @@ const initial = computed(() => {
       <div v-html="currentTitleHtml"></div>
     </div>
 
-    <!-- Côté droit : Bouton de raccourci vers le profil utilisateur -->
+    <!-- Côté droit : Badge de rôle et Bouton Profil -->
     <div style="display: flex; align-items: center; gap: 12px">
+      <!-- Badge Rôle -->
+      <span
+        v-if="user?.role"
+        :style="{
+          fontSize: '0.72rem',
+          fontWeight: '800',
+          padding: '4px 10px',
+          borderRadius: '12px',
+          letterSpacing: '0.5px',
+          textTransform: 'uppercase',
+          background: user?.role === 'ADMIN' ? 'rgba(244, 63, 94, 0.15)' : 'rgba(0, 201, 150, 0.15)',
+          color: user?.role === 'ADMIN' ? '#f43f5e' : 'var(--color-primary)',
+          border: user?.role === 'ADMIN' ? '1px solid rgba(244, 63, 94, 0.35)' : '1px solid rgba(0, 201, 150, 0.35)'
+        }"
+      >
+        {{ user?.role }}
+      </span>
+
       <button
         @click="emit('profileClick')"
         style="display: flex; align-items: center; gap: 10px; background: rgba(0,24,32,0.8); border: 1px solid var(--card-border); padding: 6px 14px; border-radius: 20px; color: #fff; cursor: pointer"
@@ -66,9 +85,12 @@ const initial = computed(() => {
           {{ initial }}
         </div>
         <!-- Nom complet du manager connecté -->
-        <span style="font-size: 0.88rem; font-weight: 700">{{ user?.full_name || 'Responsable HSE' }}</span>
+        <span style="font-size: 0.88rem; font-weight: 700">{{ user?.full_name || 'Utilisateur' }}</span>
         <ChevronDown :size="14" style="color: var(--text-dim)" />
       </button>
     </div>
   </header>
 </template>
+
+<style scoped>
+</style>

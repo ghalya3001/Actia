@@ -139,7 +139,35 @@ const thStyle = { padding: '6px 6px', borderBottom: '2px solid #cbd5e1', backgro
     <!-- ======================================================================= -->
     <!-- SECTION PERMIS DE TRAVAIL                                               -->
     <!-- ======================================================================= -->
-    <table v-if="isPermis" style="width: 100%; border-collapse: collapse; margin-bottom: 15px; border: 1px solid #cbd5e1;">
+    <!-- Cas avec champs dynamiques enregistrés -->
+    <table v-if="isPermis && items.dynamic_fields && items.dynamic_fields.length > 0" style="width: 100%; border-collapse: collapse; margin-bottom: 15px; border: 1px solid #cbd5e1; font-size: 8.5pt;">
+      <thead>
+        <tr>
+          <th :style="thStyle">Champ / Autorisation</th>
+          <th :style="{ ...thStyle, textAlign: 'center', width: '130px' }">Type de donnée</th>
+          <th :style="{ ...thStyle, textAlign: 'center', width: '200px' }">Valeur / Donnée Saisie</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-for="(f, i) in items.dynamic_fields" :key="i">
+          <td :style="cellStyle">
+            <strong>{{ f.label }}</strong>
+            <span v-if="f.unit" style="font-size: 7.5pt; color: #64748b; display: block;">{{ f.unit }}</span>
+          </td>
+          <td :style="{ ...cellStyle, textAlign: 'center' }">
+            <span :style="{ fontSize: '7pt', fontWeight: '800', padding: '2px 6px', borderRadius: '4px', background: f.type === 'numeric' ? '#eff6ff' : '#ecfdf5', color: f.type === 'numeric' ? '#1d4ed8' : '#047857' }">
+              {{ f.type === 'numeric' ? 'NUMÉRIQUE' : 'TEXTE' }}
+            </span>
+          </td>
+          <td :style="{ ...cellStyle, textAlign: f.type === 'numeric' ? 'center' : 'left', fontWeight: f.type === 'numeric' ? '800' : '500', color: f.type === 'numeric' ? '#1d4ed8' : '#1e293b' }">
+            {{ f.value !== '' && f.value !== null && f.value !== undefined ? f.value : '—' }}
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- Cas hérité (anciens permis de travail) -->
+    <table v-else-if="isPermis" style="width: 100%; border-collapse: collapse; margin-bottom: 15px; border: 1px solid #cbd5e1;">
       <thead>
         <tr>
           <th :style="thStyle">Type de Permis / Autorisation</th>

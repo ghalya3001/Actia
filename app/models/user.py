@@ -17,9 +17,26 @@ Rôle :
 ===============================================================================
 """
 
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, func
+import enum
+from typing import Optional
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, func
 from sqlalchemy.orm import relationship
 from app.db.base import Base
+
+
+# =============================================================================
+# ENUMS : RÔLES & STATUTS DU CYCLE DE VIE DES COMPTES
+# =============================================================================
+class UserRole(str, enum.Enum):
+    USER = "USER"
+    ADMIN = "ADMIN"
+
+
+class UserStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+    SUSPENDED = "SUSPENDED"
 
 
 # =============================================================================
@@ -28,6 +45,7 @@ from app.db.base import Base
 class User(Base):
     """
     Entité représentant un utilisateur ou responsable de la plateforme HSE.
+    Gère les rôles RBAC (USER, ADMIN) et le cycle de validation (PENDING, APPROVED, REJECTED, SUSPENDED).
     """
     __tablename__ = "users"
 
@@ -43,6 +61,21 @@ class User(Base):
     # Empreinte hachée bcrypt du mot de passe (jamais en clair)
     hashed_password = Column(String(255), nullable=False)
 
+    # Rôle RBAC : USER ou ADMIN (extensible)
+    role = Column(String(50), default=UserRole.USER.value, nullable=False, index=True)
+
+    # Statut du compte : PENDING, APPROVED, REJECTED, SUSPENDED
+    status = Column(String(50), default=UserStatus.PENDING.value, nullable=False, index=True)
+
+    # Motif du rejet si le compte est rejeté
+    rejection_reason = Column(Text, nullable=True)
+
+    # Référence vers l'administrateur ayant approuvé/rejeté/suspendu ce compte
+    reviewed_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    # Date et heure de la revue du compte
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+
     # Indicateur d'activation du compte (False bloque toute tentative de connexion)
     is_active = Column(Boolean, default=True)
 
@@ -50,8 +83,19 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # --- Relations ORM (1 utilisateur vers N entités dépendantes) ---
+    # Administrateur ayant validé ce compte
+    reviewer = relationship("User", remote_side=[id], foreign_keys=[reviewed_by])
+
+    @property
+    def reviewer_name(self) -> Optional[str]:
+        return self.reviewer.full_name if self.reviewer else None
+
+    @property
+    def reviewer_email(self) -> Optional[str]:
+        return self.reviewer.email if self.reviewer else None
+
     # Sessions de connexion associées à l'utilisateur
-    sessions = relationship("UserSession", back_populates="user", cascade="all, delete-orphan")
+    sessions = relationship("UserSession", back_populates="user", cascade="all, delete-orphan", foreign_keys="UserSession.user_id")
 
     # Demandes de réinitialisation de mot de passe par code OTP
     pwd_reset_requests = relationship("PwdResetRequest", back_populates="user", cascade="all, delete-orphan")

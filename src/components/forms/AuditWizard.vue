@@ -18,11 +18,11 @@ Fonctionnalités avancées :
 -->
 
 <script setup>
-import { ref, reactive, watch, computed } from 'vue';
+import { ref, reactive, watch, computed, onMounted } from 'vue';
 import {
   ArrowLeft, ChevronRight, ChevronLeft, Upload, CheckCircle,
   AlertTriangle, FileText, Shield, Flame, HardHat, Camera, X,
-  Activity, TrendingUp, BarChart3
+  Activity, TrendingUp, BarChart3, Plus, Trash2, Hash, Type, Sparkles, Layers
 } from 'lucide-vue-next';
 
 // --- Props et Événements ---
@@ -165,11 +165,203 @@ const secteur = ref('');
 const intervenants = ref('');
 const commentairesGeneraux = ref('');
 
-// Champs spécifiques au formulaire de Permis de Travail
-const planPrevention = ref(0);
-const permisHauteur = ref(0);
-const permisFeu = ref(0);
-const permisRemarques = ref('');
+// =============================================================================
+// RÉFÉRENTIEL & ÉTATS DYNAMIQUES DU FORMULAIRE PERMIS DE TRAVAIL (FGSI-PERMIS)
+// =============================================================================
+// Catalogue officiel des champs standards prédéfinis
+const STANDARD_PERMIS_FIELDS = [
+  { fieldId: 'plan_prevention', label: 'Plan de Prévention', type: 'numeric', unit: 'Plans établis', description: 'Nombre de plans de prévention rédigés et validés' },
+  { fieldId: 'permis_hauteur', label: 'Permis Travail en Hauteur', type: 'numeric', unit: 'Permis délivrés', description: 'Autorisations de travaux en hauteur délivrées' },
+  { fieldId: 'permis_feu', label: 'Permis de Feu', type: 'numeric', unit: 'Permis délivrés', description: 'Autorisations de travaux à points chauds ou flammes' },
+  { fieldId: 'consignation_electrique', label: 'Consignation Électrique / LOTO', type: 'numeric', unit: 'Cadenas / Permis', description: 'Procédures de consignation et verrouillage d\'énergie' },
+  { fieldId: 'espace_confine', label: 'Permis Espace Confiné', type: 'numeric', unit: 'Autorisations', description: 'Travaux en cuve, fosse ou espace confiné' },
+  { fieldId: 'fouille_terrassement', label: 'Permis de Fouille & Terrassement', type: 'numeric', unit: 'Autorisations', description: 'Travaux d\'excavation, tranchées et fouilles' },
+  { fieldId: 'travaux_point_chaud', label: 'Travaux par Points Chauds', type: 'numeric', unit: 'Autorisations', description: 'Opérations de soudage, meulage ou découpe thermique' },
+  { fieldId: 'nom_superviseur', label: 'Nom du Superviseur de Chantier', type: 'char', unit: 'Alphanumérique', description: 'Responsable opérationnel de l\'intervention' },
+  { fieldId: 'societe_exterieure', label: 'Entreprise / Société Extérieure', type: 'char', unit: 'Alphanumérique', description: 'Raison sociale du prestataire intervenant' },
+  { fieldId: 'zone_intervention', label: 'Zone précise d\'intervention', type: 'char', unit: 'Alphanumérique', description: 'Bâtiment, atelier, zone de l\'usine' },
+  { fieldId: 'equipements_specifiques', label: 'Équipements & Protections requises', type: 'char', unit: 'Alphanumérique', description: 'EPI spécifiques, ligne de vie, détecteur de gaz...' },
+  { fieldId: 'remarques', label: 'Remarques & Dispositions Spécifiques', type: 'char', unit: 'Texte long', description: 'Consignes particulières, précautions d\'urgence...' }
+];
+
+// Catalogue étendu des champs disponibles (standards + champs personnalisés créés à la volée)
+const availablePermisFields = ref([...STANDARD_PERMIS_FIELDS]);
+
+// Champs actuellement ajoutés et actifs dans le formulaire
+const permisFields = ref([
+  { fieldId: 'plan_prevention', label: 'Plan de Prévention', type: 'numeric', value: 0, unit: 'Plans établis', isCustom: false },
+  { fieldId: 'permis_hauteur', label: 'Permis Travail en Hauteur', type: 'numeric', value: 0, unit: 'Permis délivrés', isCustom: false },
+  { fieldId: 'permis_feu', label: 'Permis de Feu', type: 'numeric', value: 0, unit: 'Permis délivrés', isCustom: false }
+]);
+
+// Sélection en cours dans la liste déroulante
+const selectedFieldToAdd = ref('');
+
+// Modale et formulaire de création de champ personnalisé
+const showCustomFieldModal = ref(false);
+const customFieldForm = reactive({
+  label: '',
+  type: 'numeric',
+  unit: ''
+});
+
+// Champs disponibles qui ne sont pas encore présents dans le formulaire
+const unselectedPermisFields = computed(() => {
+  const activeIds = new Set(permisFields.value.map(f => f.fieldId));
+  return availablePermisFields.value.filter(f => !activeIds.has(f.fieldId));
+});
+
+/**
+ * Ajoute le champ sélectionné depuis la liste déroulante au formulaire.
+ */
+const addSelectedField = () => {
+  if (!selectedFieldToAdd.value) return;
+  const fieldDef = availablePermisFields.value.find(f => f.fieldId === selectedFieldToAdd.value);
+  if (!fieldDef) return;
+
+  if (permisFields.value.some(f => f.fieldId === fieldDef.fieldId)) {
+    emit('showToast', `Le champ "${fieldDef.label}" est déjà présent dans le formulaire.`, 'warning');
+    selectedFieldToAdd.value = '';
+    return;
+  }
+
+  permisFields.value.push({
+    fieldId: fieldDef.fieldId,
+    label: fieldDef.label,
+    type: fieldDef.type,
+    value: fieldDef.type === 'numeric' ? 0 : '',
+    unit: fieldDef.unit || '',
+    isCustom: !!fieldDef.isCustom
+  });
+
+  emit('showToast', `Champ "${fieldDef.label}" ajouté avec succès.`);
+  selectedFieldToAdd.value = '';
+};
+
+/**
+ * Supprime un champ du formulaire dynamique.
+ */
+const removePermisField = (index) => {
+  const removed = permisFields.value[index];
+  permisFields.value.splice(index, 1);
+  if (removed) {
+    emit('showToast', `Champ "${removed.label}" supprimé du formulaire.`);
+  }
+};
+
+/**
+ * Ouvre la boîte de dialogue de création d'un champ personnalisé.
+ */
+const openCustomFieldModal = () => {
+  customFieldForm.label = '';
+  customFieldForm.type = 'numeric';
+  customFieldForm.unit = '';
+  showCustomFieldModal.value = true;
+};
+
+/**
+ * Ferme la modale de création de champ personnalisé.
+ */
+const closeCustomFieldModal = () => {
+  showCustomFieldModal.value = false;
+};
+
+const API_CUSTOM_FIELDS = window.location.origin + '/api/v1/custom-fields';
+
+/**
+ * Charge le catalogue des champs personnalisés partagés depuis le backend.
+ */
+const loadCustomFieldDefinitions = async () => {
+  try {
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+    const res = await fetch(`${API_CUSTOM_FIELDS}/definitions?form_type=permis_travail`, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+    if (res.ok) {
+      const defs = await res.json();
+      defs.forEach(d => {
+        if (!availablePermisFields.value.some(af => af.label.toLowerCase() === d.name.toLowerCase())) {
+          availablePermisFields.value.push({
+            fieldId: `custom_${d.id}`,
+            label: d.name,
+            type: d.field_type === 'numeric' ? 'numeric' : 'char',
+            unit: d.unit || '',
+            isCustom: true
+          });
+        }
+      });
+    }
+  } catch (err) {
+    console.warn('Could not load custom field definitions:', err);
+  }
+};
+
+onMounted(() => {
+  loadCustomFieldDefinitions();
+});
+
+/**
+ * Valide et enregistre un nouveau champ personnalisé dynamique.
+ */
+const submitCustomField = () => {
+  const labelTrimmed = customFieldForm.label.trim();
+  if (!labelTrimmed) {
+    emit('showToast', 'Veuillez saisir un libellé / nom pour le champ.', 'error');
+    return;
+  }
+
+  const fieldId = `custom_${Date.now()}`;
+  const newField = {
+    fieldId,
+    label: labelTrimmed,
+    type: customFieldForm.type,
+    unit: customFieldForm.unit.trim() || (customFieldForm.type === 'numeric' ? 'Unité' : 'Texte'),
+    isCustom: true
+  };
+
+  // Enregistrement dans le catalogue disponible local
+  availablePermisFields.value.push(newField);
+
+  // Ajout immédiat au formulaire actif
+  permisFields.value.push({
+    fieldId: newField.fieldId,
+    label: newField.label,
+    type: newField.type,
+    value: newField.type === 'numeric' ? 0 : '',
+    unit: newField.unit,
+    isCustom: true
+  });
+
+  // Sauvegarde dans le catalogue partagé du backend pour que tous les managers y aient accès
+  try {
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+    fetch(`${API_CUSTOM_FIELDS}/definitions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        name: newField.label,
+        field_type: newField.type === 'numeric' ? 'numeric' : 'text',
+        unit: newField.unit,
+        form_type: 'permis_travail'
+      })
+    })
+      .then(res => res.json())
+      .then(savedDef => {
+        if (savedDef && savedDef.id) {
+          newField.fieldId = `custom_${savedDef.id}`;
+        }
+      })
+      .catch(err => console.warn('Could not save custom field definition:', err));
+  } catch (err) {}
+
+  emit('showToast', `Champ personnalisé "${newField.label}" créé et ajouté !`);
+  closeCustomFieldModal();
+};
 
 // Champs spécifiques aux Statistiques Mensuelles d'Accidents
 const selectedAnnee = ref(2026);
@@ -300,10 +492,51 @@ watch(
 
       if (isPermis.value) {
         const items = props.editingAudit.items_data || {};
-        planPrevention.value = items.plan_prevention || 0;
-        permisHauteur.value = items.permis_hauteur || 0;
-        permisFeu.value = items.permis_feu || 0;
-        permisRemarques.value = items.remarques || '';
+        if (Array.isArray(items.dynamic_fields) && items.dynamic_fields.length > 0) {
+          permisFields.value = items.dynamic_fields.map(f => ({
+            fieldId: f.fieldId,
+            label: f.label,
+            type: f.type || (typeof f.value === 'number' ? 'numeric' : 'char'),
+            value: f.value,
+            unit: f.unit || '',
+            isCustom: f.isCustom || (typeof f.fieldId === 'string' && f.fieldId.startsWith('custom_'))
+          }));
+          // Enregistrer les champs personnalisés dans le catalogue disponible s'ils n'existent pas
+          permisFields.value.forEach(f => {
+            if (!availablePermisFields.value.some(af => af.fieldId === f.fieldId)) {
+              availablePermisFields.value.push({
+                fieldId: f.fieldId,
+                label: f.label,
+                type: f.type,
+                unit: f.unit || '',
+                isCustom: true
+              });
+            }
+          });
+        } else {
+          // Rétrocompatibilité : reconstruction des champs dynamiques depuis les anciennes clés
+          const legacy = [];
+          if (items.plan_prevention !== undefined) {
+            legacy.push({ fieldId: 'plan_prevention', label: 'Plan de Prévention', type: 'numeric', value: Number(items.plan_prevention) || 0, unit: 'Plans établis', isCustom: false });
+          }
+          if (items.permis_hauteur !== undefined) {
+            legacy.push({ fieldId: 'permis_hauteur', label: 'Permis Travail en Hauteur', type: 'numeric', value: Number(items.permis_hauteur) || 0, unit: 'Permis délivrés', isCustom: false });
+          }
+          if (items.permis_feu !== undefined) {
+            legacy.push({ fieldId: 'permis_feu', label: 'Permis de Feu', type: 'numeric', value: Number(items.permis_feu) || 0, unit: 'Permis délivrés', isCustom: false });
+          }
+          if (items.remarques !== undefined && items.remarques !== '') {
+            legacy.push({ fieldId: 'remarques', label: 'Remarques & Dispositions Spécifiques', type: 'char', value: items.remarques, unit: 'Texte long', isCustom: false });
+          }
+          if (legacy.length === 0) {
+            legacy.push(
+              { fieldId: 'plan_prevention', label: 'Plan de Prévention', type: 'numeric', value: 0, unit: 'Plans établis', isCustom: false },
+              { fieldId: 'permis_hauteur', label: 'Permis Travail en Hauteur', type: 'numeric', value: 0, unit: 'Permis délivrés', isCustom: false },
+              { fieldId: 'permis_feu', label: 'Permis de Feu', type: 'numeric', value: 0, unit: 'Permis délivrés', isCustom: false }
+            );
+          }
+          permisFields.value = legacy;
+        }
       } else if (isStatAccidents.value) {
         const items = props.editingAudit.items_data || {};
         selectedAnnee.value = items.annee || 2026;
@@ -333,7 +566,15 @@ watch(
       // Cas 2 : Mode création d'une nouvelle fiche vierge
       if (isStatAccidents.value) {
         initAccidentData();
-      } else if (!isPermis.value) {
+      } else if (isPermis.value) {
+        // Initialiser avec les 3 permis fondamentaux
+        permisFields.value = [
+          { fieldId: 'plan_prevention', label: 'Plan de Prévention', type: 'numeric', value: 0, unit: 'Plans établis', isCustom: false },
+          { fieldId: 'permis_hauteur', label: 'Permis Travail en Hauteur', type: 'numeric', value: 0, unit: 'Permis délivrés', isCustom: false },
+          { fieldId: 'permis_feu', label: 'Permis de Feu', type: 'numeric', value: 0, unit: 'Permis délivrés', isCustom: false }
+        ];
+        selectedFieldToAdd.value = '';
+      } else {
         Object.keys(answers).forEach(k => delete answers[k]);
         questionsData.value.forEach(q => {
           // Par défaut, chaque question est pré-remplie à Conforme (val: 1)
@@ -409,11 +650,25 @@ const handleSubmit = async () => {
 
   // Construction du payload selon le type de formulaire
   if (isPermis.value) {
+    const findVal = (id, defaultVal) => {
+      const f = permisFields.value.find(item => item.fieldId === id);
+      return f !== undefined ? f.value : defaultVal;
+    };
+
     itemsPayload = {
-      plan_prevention: parseInt(planPrevention.value || 0, 10),
-      permis_hauteur: parseInt(permisHauteur.value || 0, 10),
-      permis_feu: parseInt(permisFeu.value || 0, 10),
-      remarques: permisRemarques.value
+      dynamic_fields: permisFields.value.map(f => ({
+        fieldId: f.fieldId,
+        label: f.label,
+        type: f.type,
+        value: f.type === 'numeric' ? (Number(f.value) || 0) : String(f.value ?? ''),
+        unit: f.unit || '',
+        isCustom: !!f.isCustom
+      })),
+      // Maintien des clés scalaires rétrocompatibles pour les outils existants
+      plan_prevention: parseInt(findVal('plan_prevention', 0), 10) || 0,
+      permis_hauteur: parseInt(findVal('permis_hauteur', 0), 10) || 0,
+      permis_feu: parseInt(findVal('permis_feu', 0), 10) || 0,
+      remarques: String(findVal('remarques', ''))
     };
   } else if (isStatAccidents.value) {
     const monthsPayload = {};
@@ -870,35 +1125,294 @@ const isTargetStepForQuestion = (q, step) => {
     </div>
 
     <!-- ===================================================================== -->
-    <!-- ÉTAPE 2 (OPTION B) : FORMULAIRE PERMIS DE TRAVAIL                     -->
+    <!-- ÉTAPE 2 (OPTION B) : FORMULAIRE PERMIS DE TRAVAIL DYNAMIQUE           -->
     <!-- ===================================================================== -->
-    <div v-if="currentStep === 2 && isPermis" class="wizard-card" style="background: #fff; border-radius: 12px; padding: 1.5rem; border: 1px solid #e2e8f0;">
-      <h3 style="font-size: 1.1rem; font-weight: 800; color: #3b82f6; margin-bottom: 8px;"><Shield :size="20" style="display: inline; margin-right: 8px;"/> Formulaire Permis de Travail (FGSI-PERMIS)</h3>
-      <p style="font-size: 0.85rem; color: #64748b; margin-bottom: 1.25rem;">Saisissez le nombre de permis délivrés pour les travaux planifiés :</p>
+    <div v-if="currentStep === 2 && isPermis" class="wizard-card" style="background: #fff; border-radius: 14px; padding: 1.75rem; border: 1px solid #e2e8f0; box-shadow: 0 4px 20px rgba(0,0,0,0.03);">
       
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem; margin-bottom: 1.5rem;">
-        <div style="background: #f8fafc; padding: 1.25rem; border-radius: 10px; border: 1px solid #cbd5e1; border-top: 4px solid #3b82f6;">
-          <label style="font-size: 0.88rem; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 6px; margin-bottom: 6px;"><FileText :size="16" color="#3b82f6"/> Plan de Prévention</label>
-          <span style="font-size: 0.75rem; color: #64748b; display: block; margin-bottom: 8px;">Nombre de plans établis</span>
-          <input type="number" class="light-input" min="0" v-model="planPrevention" style="font-size: 1.3rem; font-weight: 800; color: #1d4ed8; text-align: center;" />
+      <!-- En-tête de section -->
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 12px;">
+        <div>
+          <h3 style="font-size: 1.15rem; font-weight: 800; color: #1d4ed8; margin-bottom: 4px; display: flex; align-items: center; gap: 8px;">
+            <Shield :size="22" color="#3b82f6" /> Formulaire Permis de Travail (FGSI-PERMIS)
+          </h3>
+          <p style="font-size: 0.85rem; color: #64748b; margin: 0;">
+            Sélectionnez les champs de permis à renseigner ou créez vos propres champs personnalisés (numériques ou textuels).
+          </p>
+        </div>
+        
+        <!-- Badge compteur de champs actifs -->
+        <span style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 6px 14px; border-radius: 20px; font-size: 0.8rem; font-weight: 700; display: flex; align-items: center; gap: 6px;">
+          <Layers :size="14" /> {{ permisFields.length }} champ(s) actif(s)
+        </span>
+      </div>
+
+      <!-- =================================================================== -->
+      <!-- BARRE D'ACTION : CRÉATION DE CHAMP PERSONNALISÉ                    -->
+      <!-- =================================================================== -->
+      <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 1.75rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+        <div style="font-size: 0.85rem; color: #475569; font-weight: 600;">
+          Renseignez les permis requis ou ajoutez de nouveaux champs personnalisés selon les exigences du chantier :
         </div>
 
-        <div style="background: #f8fafc; padding: 1.25rem; border-radius: 10px; border: 1px solid #cbd5e1; border-top: 4px solid #ea580c;">
-          <label style="font-size: 0.88rem; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 6px; margin-bottom: 6px;"><HardHat :size="16" color="#ea580c"/> Permis Travail en Hauteur</label>
-          <span style="font-size: 0.75rem; color: #64748b; display: block; margin-bottom: 8px;">Nombre de permis hauteur</span>
-          <input type="number" class="light-input" min="0" v-model="permisHauteur" style="font-size: 1.3rem; font-weight: 800; color: #c2410c; text-align: center;" />
-        </div>
+        <!-- Bouton Création de Champ Personnalisé -->
+        <button 
+          type="button" 
+          @click="openCustomFieldModal"
+          style="padding: 10px 18px; border-radius: 8px; font-size: 0.85rem; font-weight: 700; background: #00c996; color: #002b20; border: 1px solid #00a87d; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 8px rgba(0,201,150,0.25); white-space: nowrap; transition: all 0.2s;"
+        >
+          <Sparkles :size="16" /> + Créer un champ personnalisé
+        </button>
+      </div>
 
-        <div style="background: #f8fafc; padding: 1.25rem; border-radius: 10px; border: 1px solid #cbd5e1; border-top: 4px solid #dc2626;">
-          <label style="font-size: 0.88rem; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 6px; margin-bottom: 6px;"><Flame :size="16" color="#dc2626"/> Permis de Feu</label>
-          <span style="font-size: 0.75rem; color: #64748b; display: block; margin-bottom: 8px;">Nombre de permis feu délivrés</span>
-          <input type="number" class="light-input" min="0" v-model="permisFeu" style="font-size: 1.3rem; font-weight: 800; color: #b91c1c; text-align: center;" />
+      <!-- =================================================================== -->
+      <!-- LISTE DES CHAMPS AJOUTÉS AU FORMULAIRE                             -->
+      <!-- =================================================================== -->
+      <div v-if="permisFields.length === 0" style="text-align: center; padding: 3rem 1.5rem; background: #f8fafc; border: 2px dashed #cbd5e1; border-radius: 12px; margin-bottom: 1.5rem;">
+        <Shield :size="40" color="#94a3b8" style="margin-bottom: 12px; opacity: 0.6;" />
+        <div style="font-size: 1rem; font-weight: 700; color: #475569; margin-bottom: 4px;">Aucun champ n'est actuellement ajouté à ce permis</div>
+        <p style="font-size: 0.82rem; color: #94a3b8; max-width: 420px; margin: 0 auto 1.25rem;">
+          Utilisez la liste déroulante ci-dessus pour sélectionner les permis et informations applicables, ou créez un champ sur mesure.
+        </p>
+      </div>
+
+      <div v-else style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; margin-bottom: 1.5rem;">
+        <div 
+          v-for="(f, idx) in permisFields" 
+          :key="f.fieldId"
+          style="background: #f8fafc; padding: 1.25rem; border-radius: 10px; border: 1px solid #cbd5e1; display: flex; flex-direction: column; justify-content: space-between; position: relative; transition: border-color 0.2s, box-shadow 0.2s;"
+          :style="{
+            borderTop: f.type === 'numeric' ? '4px solid #3b82f6' : '4px solid #10b981',
+            gridColumn: (f.fieldId === 'remarques' || (f.type === 'char' && String(f.value).length > 60)) ? '1 / -1' : 'auto'
+          }"
+        >
+          <!-- En-tête de la carte de champ -->
+          <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 8px;">
+            <div style="flex: 1;">
+              <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                <label style="font-size: 0.88rem; font-weight: 800; color: #0f172a; margin: 0;">
+                  {{ f.label }}
+                </label>
+                <!-- Badge Type -->
+                <span 
+                  :style="{
+                    padding: '2px 7px',
+                    borderRadius: '6px',
+                    fontSize: '0.68rem',
+                    fontWeight: '800',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px',
+                    background: f.type === 'numeric' ? 'rgba(59,130,246,0.1)' : 'rgba(16,185,129,0.1)',
+                    color: f.type === 'numeric' ? '#1d4ed8' : '#047857',
+                    border: f.type === 'numeric' ? '1px solid rgba(59,130,246,0.3)' : '1px solid rgba(16,185,129,0.3)'
+                  }"
+                >
+                  {{ f.type === 'numeric' ? 'Numérique' : 'Texte' }}
+                </span>
+                <span v-if="f.isCustom" style="padding: 2px 6px; border-radius: 6px; font-size: 0.65rem; font-weight: 700; background: #fef3c7; color: #b45309; border: 1px solid #fde68a;">
+                  Personnalisé
+                </span>
+              </div>
+              <span v-if="f.unit" style="font-size: 0.72rem; color: #64748b; display: block; margin-top: 2px;">
+                {{ f.unit }}
+              </span>
+            </div>
+
+            <!-- Bouton Supprimer le champ -->
+            <button 
+              type="button" 
+              @click="removePermisField(idx)" 
+              title="Supprimer ce champ de la fiche"
+              style="background: transparent; border: none; color: #94a3b8; cursor: pointer; padding: 4px; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: color 0.15s, background 0.15s;"
+              onmouseover="this.style.color='#ef4444'; this.style.background='#fee2e2';"
+              onmouseout="this.style.color='#94a3b8'; this.style.background='transparent';"
+            >
+              <Trash2 :size="16" />
+            </button>
+          </div>
+
+          <!-- Champ de saisie selon le type -->
+          <div style="margin-top: 6px;">
+            <!-- Cas NUMÉRIQUE -->
+            <template v-if="f.type === 'numeric'">
+              <input 
+                type="number" 
+                class="light-input" 
+                min="0" 
+                step="any"
+                v-model.number="f.value" 
+                style="font-size: 1.3rem; font-weight: 800; color: #1d4ed8; text-align: center;" 
+                placeholder="0"
+              />
+            </template>
+
+            <!-- Cas TEXTE / CHAR -->
+            <template v-else>
+              <textarea 
+                v-if="f.fieldId === 'remarques' || f.label.toLowerCase().includes('remarque') || f.label.toLowerCase().includes('précautions')"
+                class="light-input" 
+                rows="3" 
+                v-model="f.value" 
+                placeholder="Saisissez vos observations ou remarques..."
+                style="font-size: 0.88rem; color: #0f172a; resize: vertical;"
+              ></textarea>
+              <input 
+                v-else
+                type="text" 
+                class="light-input" 
+                v-model="f.value" 
+                placeholder="Saisie texte / observation..." 
+                style="font-size: 0.9rem; color: #0f172a;"
+              />
+            </template>
+          </div>
+
         </div>
       </div>
 
-      <div>
-        <label style="font-size: 0.82rem; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Remarques & Précautions Spécifiques</label>
-        <textarea class="light-input" rows="3" placeholder="Description des travaux, précautions..." v-model="permisRemarques"></textarea>
+    </div>
+
+    <!-- =================================================================== -->
+    <!-- MODAL DE CRÉATION DE CHAMP PERSONNALISÉ                            -->
+    <!-- =================================================================== -->
+    <div 
+      v-if="showCustomFieldModal" 
+      style="position: fixed; inset: 0; background: rgba(15,23,42,0.65); backdrop-filter: blur(4px); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 1rem;"
+    >
+      <div style="background: #ffffff; border-radius: 14px; width: 100%; max-width: 480px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.3); border: 1px solid #e2e8f0; overflow: hidden;">
+        
+        <!-- En-tête Modal -->
+        <div style="background: #0f172a; color: #ffffff; padding: 1.25rem 1.5rem; display: flex; align-items: center; justify-content: space-between;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <Sparkles :size="20" color="#00c996" />
+            <h4 style="font-size: 1.05rem; font-weight: 800; margin: 0; color: #ffffff;">Créer un Nouveau Champ</h4>
+          </div>
+          <button 
+            type="button" 
+            @click="closeCustomFieldModal"
+            style="background: transparent; border: none; color: #94a3b8; cursor: pointer; padding: 4px; display: flex; align-items: center;"
+            onmouseover="this.style.color='#fff';"
+            onmouseout="this.style.color='#94a3b8';"
+          >
+            <X :size="20" />
+          </button>
+        </div>
+
+        <!-- Corps Modal -->
+        <div style="padding: 1.5rem;">
+          
+          <!-- 1. Libellé / Nom du champ -->
+          <div style="margin-bottom: 1.25rem;">
+            <label style="font-size: 0.82rem; font-weight: 800; color: #334155; display: block; margin-bottom: 6px;">
+              Libellé / Nom du Champ <span style="color: #ef4444;">*</span>
+            </label>
+            <input 
+              type="text" 
+              class="light-input" 
+              placeholder="Ex: Pression de test (bar), Température, Observation..." 
+              v-model="customFieldForm.label"
+              @keydown.enter.prevent="submitCustomField"
+              autofocus
+            />
+            <span style="font-size: 0.72rem; color: #64748b; margin-top: 4px; display: block;">
+              Nom qui identifiera ce champ dans le formulaire et les rapports.
+            </span>
+          </div>
+
+          <!-- 2. Type de données (Numérique ou Texte/Char) -->
+          <div style="margin-bottom: 1.25rem;">
+            <label style="font-size: 0.82rem; font-weight: 800; color: #334155; display: block; margin-bottom: 8px;">
+              Type de Donnée <span style="color: #ef4444;">*</span>
+            </label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+              
+              <!-- Option Numérique -->
+              <div 
+                @click="customFieldForm.type = 'numeric'"
+                :style="{
+                  padding: '12px',
+                  borderRadius: '8px',
+                  border: '2px solid',
+                  borderColor: customFieldForm.type === 'numeric' ? '#2563eb' : '#e2e8f0',
+                  background: customFieldForm.type === 'numeric' ? '#eff6ff' : '#f8fafc',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  transition: 'all 0.15s'
+                }"
+              >
+                <div :style="{ width: '16px', height: '16px', borderRadius: '50%', border: '2px solid', borderColor: customFieldForm.type === 'numeric' ? '#2563eb' : '#94a3b8', display: 'flex', alignItems: 'center', justifyContent: 'center' }">
+                  <div v-if="customFieldForm.type === 'numeric'" style="width: 8px; height: 8px; border-radius: 50%; background: #2563eb;"></div>
+                </div>
+                <div>
+                  <div style="font-size: 0.85rem; font-weight: 800; color: #0f172a;">Numérique</div>
+                  <div style="font-size: 0.7rem; color: #64748b;">Nombres, mesures, compteurs</div>
+                </div>
+              </div>
+
+              <!-- Option Texte / Char -->
+              <div 
+                @click="customFieldForm.type = 'char'"
+                :style="{
+                  padding: '12px',
+                  borderRadius: '8px',
+                  border: '2px solid',
+                  borderColor: customFieldForm.type === 'char' ? '#10b981' : '#e2e8f0',
+                  background: customFieldForm.type === 'char' ? '#ecfdf5' : '#f8fafc',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  transition: 'all 0.15s'
+                }"
+              >
+                <div :style="{ width: '16px', height: '16px', borderRadius: '50%', border: '2px solid', borderColor: customFieldForm.type === 'char' ? '#10b981' : '#94a3b8', display: 'flex', alignItems: 'center', justifyContent: 'center' }">
+                  <div v-if="customFieldForm.type === 'char'" style="width: 8px; height: 8px; border-radius: 50%; background: #10b981;"></div>
+                </div>
+                <div>
+                  <div style="font-size: 0.85rem; font-weight: 800; color: #0f172a;">Texte / Char</div>
+                  <div style="font-size: 0.7rem; color: #64748b;">Mots, phrases, observations</div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- 3. Unité / Précision facultative -->
+          <div style="margin-bottom: 1.5rem;">
+            <label style="font-size: 0.82rem; font-weight: 800; color: #334155; display: block; margin-bottom: 6px;">
+              Unité ou Indication (Facultatif)
+            </label>
+            <input 
+              type="text" 
+              class="light-input" 
+              :placeholder="customFieldForm.type === 'numeric' ? 'Ex: bar, °C, permis, heures...' : 'Ex: Nom, Localisation...'" 
+              v-model="customFieldForm.unit"
+              @keydown.enter.prevent="submitCustomField"
+            />
+          </div>
+
+          <!-- Boutons d'action -->
+          <div style="display: flex; justify-content: flex-end; gap: 10px;">
+            <button 
+              type="button" 
+              class="btn btn-secondary" 
+              @click="closeCustomFieldModal"
+              style="background: #e2e8f0; color: #475569; padding: 9px 16px; font-size: 0.85rem;"
+            >
+              Annuler
+            </button>
+            <button 
+              type="button" 
+              @click="submitCustomField"
+              style="background: #00c996; color: #002b20; border: 1px solid #00a87d; font-weight: 800; padding: 9px 20px; border-radius: 8px; font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 8px rgba(0,201,150,0.25);"
+            >
+              <Plus :size="16" /> Créer & Ajouter
+            </button>
+          </div>
+
+        </div>
+
       </div>
     </div>
 
@@ -1053,19 +1567,49 @@ const isTargetStepForQuestion = (q, step) => {
         </div>
       </div>
 
-      <!-- Synthèse des permis de travail -->
-      <div v-else-if="isPermis" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
-        <div style="padding: 15px; background: #fff; border: 1px solid #e2e8f0; border-left: 4px solid #3b82f6; border-radius: 8px;">
-          <div style="font-size: 0.8rem; font-weight: 700; color: #64748b;">Plan de Prévention</div>
-          <div style="font-size: 1.6rem; font-weight: 800; color: #1d4ed8; margin-top: 4px;">{{ planPrevention }}</div>
+      <!-- Synthèse des permis de travail dynamique -->
+      <div v-else-if="isPermis">
+        <div style="margin-bottom: 1rem; font-size: 0.9rem; font-weight: 700; color: #334155; display: flex; align-items: center; gap: 8px;">
+          <Shield :size="18" color="#3b82f6" /> Détail des {{ permisFields.length }} champ(s) et autorisation(s) enregistré(s) :
         </div>
-        <div style="padding: 15px; background: #fff; border: 1px solid #e2e8f0; border-left: 4px solid #ea580c; border-radius: 8px;">
-          <div style="font-size: 0.8rem; font-weight: 700; color: #64748b;">Permis Hauteur</div>
-          <div style="font-size: 1.6rem; font-weight: 800; color: #c2410c; margin-top: 4px;">{{ permisHauteur }}</div>
+
+        <div v-if="permisFields.length === 0" style="padding: 1.5rem; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; text-align: center; color: #64748b; font-size: 0.88rem; margin-bottom: 1.5rem;">
+          Aucun champ de permis n'a été ajouté. Vous pouvez revenir à l'Étape 2 pour ajouter des champs.
         </div>
-        <div style="padding: 15px; background: #fff; border: 1px solid #e2e8f0; border-left: 4px solid #dc2626; border-radius: 8px;">
-          <div style="font-size: 0.8rem; font-weight: 700; color: #64748b;">Permis de Feu</div>
-          <div style="font-size: 1.6rem; font-weight: 800; color: #b91c1c; margin-top: 4px;">{{ permisFeu }}</div>
+
+        <div v-else style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+          <div 
+            v-for="f in permisFields" 
+            :key="'synth-' + f.fieldId" 
+            style="padding: 14px; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; display: flex; flex-direction: column; justify-content: space-between;"
+            :style="{
+              borderLeft: f.type === 'numeric' ? '4px solid #3b82f6' : '4px solid #10b981',
+              gridColumn: (f.fieldId === 'remarques' || (f.type === 'char' && String(f.value).length > 60)) ? '1 / -1' : 'auto'
+            }"
+          >
+            <div>
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+                <span style="font-size: 0.78rem; font-weight: 700; color: #64748b;">{{ f.label }}</span>
+                <span :style="{ fontSize: '0.65rem', fontWeight: '800', textTransform: 'uppercase', padding: '1px 5px', borderRadius: '4px', background: f.type === 'numeric' ? '#eff6ff' : '#ecfdf5', color: f.type === 'numeric' ? '#1d4ed8' : '#047857' }">
+                  {{ f.type === 'numeric' ? 'NUM' : 'TXT' }}
+                </span>
+              </div>
+              <div v-if="f.unit" style="font-size: 0.7rem; color: #94a3b8;">{{ f.unit }}</div>
+            </div>
+
+            <div style="margin-top: 8px;">
+              <template v-if="f.type === 'numeric'">
+                <div style="font-size: 1.6rem; font-weight: 800; color: #1d4ed8; font-family: var(--font-mono);">
+                  {{ f.value !== '' && f.value !== null && f.value !== undefined ? f.value : 0 }}
+                </div>
+              </template>
+              <template v-else>
+                <div style="font-size: 0.9rem; font-weight: 600; color: #0f172a; white-space: pre-wrap; line-height: 1.4;">
+                  {{ f.value || '—' }}
+                </div>
+              </template>
+            </div>
+          </div>
         </div>
       </div>
 

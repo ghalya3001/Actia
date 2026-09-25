@@ -42,4 +42,6 @@ htmlcov/
 node_modules/
 dist/
 
-
+# Local temporary & logs
+pg_log.txt
+scratch/

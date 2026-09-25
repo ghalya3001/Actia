@@ -27,8 +27,12 @@ import Home from './components/home/Home.vue'
 import Sidebar from './components/layout/Sidebar.vue'
 import Topbar from './components/layout/Topbar.vue'
 
-// --- 2. Imports des Composants Métier HSE ---
+// --- 2. Imports des Composants Métier HSE & Authentification / RBAC ---
 import AuthScreen from './components/auth/AuthScreen.vue'
+import PendingReviewScreen from './components/auth/PendingReviewScreen.vue'
+import AccountRejectedScreen from './components/auth/AccountRejectedScreen.vue'
+import AccountSuspendedScreen from './components/auth/AccountSuspendedScreen.vue'
+import UserManagement from './components/admin/UserManagement.vue'
 import FormSelector from './components/forms/FormSelector.vue'
 import AuditWizard from './components/forms/AuditWizard.vue'
 import HistoryTable from './components/history/HistoryTable.vue'
@@ -51,10 +55,13 @@ const getValidToken = () => {
 // Jeton d'accès JWT pour authentifier les requêtes API
 const token = ref(getValidToken())
 
-// Informations du profil utilisateur connecté (nom, email, rôle)
+// Informations du profil utilisateur connecté (nom, email, rôle, statut)
 const user = ref(null)
 
-// Page actuellement active dans la vue ('home', 'formulaire', 'historique', 'dashboard', 'profile')
+// Compteur des comptes en attente pour badge d'administration
+const pendingUsersCount = ref(0)
+
+// Page actuellement active dans la vue ('home', 'formulaire', 'historique', 'dashboard', 'admin-users', 'profile')
 const currentPage = ref('home')
 
 // Indicateur d'affichage de l'assistant de formulaire pas-à-pas (Wizard)
@@ -84,6 +91,7 @@ const toasts = ref([])
 // --- 4. URLs de Base des Endpoints Backend ---
 const API_BASE = window.location.origin + '/api/v1/auth'
 const API_AUDITS = window.location.origin + '/api/v1/audits'
+const API_ADMIN = window.location.origin + '/api/v1/admin'
 
 /**
  * Affiche une notification toast temporaire avec disparition automatique après 4 secondes.
@@ -107,6 +115,24 @@ const showToast = (msg, type = 'success') => {
 }
 
 /**
+ * Récupère les statistiques d'administration (notamment le nombre de comptes en attente).
+ */
+const fetchAdminStats = async () => {
+  if (!token.value || user.value?.role !== 'ADMIN') return
+  try {
+    const res = await fetch(`${API_ADMIN}/stats`, {
+      headers: { 'Authorization': `Bearer ${token.value}` }
+    })
+    if (res.ok) {
+      const data = await res.json()
+      pendingUsersCount.value = data.pending_users || 0
+    }
+  } catch (err) {
+    console.error('Erreur récupération stats admin:', err)
+  }
+}
+
+/**
  * Charge les informations du profil utilisateur depuis le backend via /api/v1/auth/me.
  * @param {string} authToken - Le jeton d'accès JWT.
  */
@@ -118,6 +144,9 @@ const loadUserProfile = async (authToken) => {
     const data = await res.json()
     if (res.ok) {
       user.value = data
+      if (data.role === 'ADMIN') {
+        fetchAdminStats()
+      }
     } else {
       handleLogout()
     }
@@ -130,7 +159,7 @@ const loadUserProfile = async (authToken) => {
  * Récupère l'historique complet des soumissions de formulaires depuis le backend.
  */
 const fetchAuditsHistory = async () => {
-  if (!token.value) return
+  if (!token.value || user.value?.status !== 'APPROVED') return
   try {
     const res = await fetch(`${API_AUDITS}/`, {
       headers: { 'Authorization': `Bearer ${token.value}` }
@@ -152,7 +181,7 @@ watch(token, (newToken) => {
 
 // Rafraîchit l'historique quand l'utilisateur navigue vers les pages 'historique' ou 'home'
 watch([token, currentPage], ([t, page]) => {
-  if (t && (page === 'historique' || page === 'home')) {
+  if (t && (page === 'historique' || page === 'home') && user.value?.status === 'APPROVED') {
     fetchAuditsHistory()
   }
 })
@@ -166,16 +195,19 @@ const handleLogout = () => {
   localStorage.removeItem('refresh_token')
   token.value = null
   user.value = null
+  pendingUsersCount.value = 0
+  currentPage.value = 'home'
   showToast('Déconnexion réussie.')
 }
 
 /**
- * Traite la réussite de connexion : enregistre le jeton et charge le profil.
+ * Traite la réussite de connexion : enregistre le jeton, charge le profil et oriente vers le bon tableau de bord.
  * @param {string} t - Le nouveau token d'accès JWT.
  */
-const handleLoginSuccess = (t) => {
+const handleLoginSuccess = async (t) => {
   token.value = t
-  loadUserProfile(t)
+  await loadUserProfile(t)
+  currentPage.value = 'home'
 }
 
 /**
@@ -190,10 +222,16 @@ const handleOpenWizard = (formType, auditToEdit = null) => {
 }
 
 /**
- * Navigue vers une page donnée et réinitialise le mode Wizard.
+ * Navigue vers une page donnée avec contrôle d'accès RBAC et réinitialise le mode Wizard.
  * @param {string} page - Nom de la page cible.
  */
 const handleNavigate = (page) => {
+  // Garde client RBAC pour la page d'administration réservée au rôle ADMIN
+  if (page === 'admin-users' && user.value?.role !== 'ADMIN') {
+    showToast('Accès refusé : Privilèges Administrateur requis.', 'error')
+    currentPage.value = 'home'
+    return
+  }
   wizardMode.value = false
   currentPage.value = page
 }
@@ -228,24 +266,59 @@ const handleExecuteDelete = async () => {
       @login-success="handleLoginSuccess"
       @show-toast="showToast"
     />
-    <!-- Conteneur des notifications toasts pour l'écran de login -->
-    <div class="toast-container">
-      <div
-        v-for="t in toasts"
-        :key="t.id"
-        :class="['toast', t.type === 'error' ? 'error' : '']"
-      >{{ t.msg }}</div>
+  </template>
+
+  <!-- ======================================================================= -->
+  <!-- CAS 2 : CHARGEMENT EN COURS DU PROFIL                                  -->
+  <!-- ======================================================================= -->
+  <template v-else-if="!user">
+    <div style="min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background: var(--bg-dark); color: #fff; gap: 16px;">
+      <div class="pulse-dot" style="width: 24px; height: 24px;"></div>
+      <div style="font-weight: 700; color: var(--text-muted); font-size: 0.95rem;">Chargement du profil PlatformActia...</div>
     </div>
   </template>
 
   <!-- ======================================================================= -->
-  <!-- CAS 2 : APPLICATION PRINCIPALE — UTILISATEUR AUTHENTIFIÉ               -->
+  <!-- CAS 3 : COMPTE EN ATTENTE DE VALIDATION (PENDING)                       -->
+  <!-- ======================================================================= -->
+  <template v-else-if="user.status === 'PENDING'">
+    <PendingReviewScreen
+      :user="user"
+      @check-status="() => loadUserProfile(token)"
+      @logout="handleLogout"
+    />
+  </template>
+
+  <!-- ======================================================================= -->
+  <!-- CAS 4 : COMPTE REJETÉ (REJECTED)                                       -->
+  <!-- ======================================================================= -->
+  <template v-else-if="user.status === 'REJECTED'">
+    <AccountRejectedScreen
+      :user="user"
+      @logout="handleLogout"
+    />
+  </template>
+
+  <!-- ======================================================================= -->
+  <!-- CAS 5 : COMPTE SUSPENDU (SUSPENDED)                                     -->
+  <!-- ======================================================================= -->
+  <template v-else-if="user.status === 'SUSPENDED'">
+    <AccountSuspendedScreen
+      :user="user"
+      @logout="handleLogout"
+    />
+  </template>
+
+  <!-- ======================================================================= -->
+  <!-- CAS 6 : COMPTE APPROUVÉ (APPROVED) — APPLICATION PRINCIPALE            -->
   <!-- ======================================================================= -->
   <template v-else>
     <div class="app-layout">
       <!-- Barre de navigation latérale -->
       <Sidebar
         :current-page="currentPage"
+        :user="user"
+        :pending-count="pendingUsersCount"
         @update:current-page="handleNavigate"
         @logout="handleLogout"
       />
@@ -254,13 +327,14 @@ const handleExecuteDelete = async () => {
         :current-page="currentPage"
         :user="user"
         @profile-click="() => { wizardMode = false; currentPage = 'profile' }"
+        @show-toast="showToast"
       />
 
       <!-- Zone d'affichage du contenu dynamique de la page courante -->
       <main class="main-content">
 
         <!-- 1. Page d'Accueil : vue d'ensemble et accès rapides -->
-        <Home v-if="currentPage === 'home'" @navigate="handleNavigate" />
+        <Home v-if="currentPage === 'home'" :user="user" @navigate="handleNavigate" />
 
         <!-- 2. Page des Formulaires : Sélecteur de grille OU Assistant pas-à-pas -->
         <div v-if="currentPage === 'formulaire'" class="page-anim">
@@ -278,7 +352,7 @@ const handleExecuteDelete = async () => {
           />
         </div>
 
-        <!-- 3. Page Historique : Tableau de bord de recherche et filtrage -->
+        <!-- 3. Page Historique : Tableau de bord de recherche et filtrage centralisé -->
         <div v-if="currentPage === 'historique'" class="page-anim">
           <HistoryTable
             :audits="auditsList"
@@ -295,9 +369,22 @@ const handleExecuteDelete = async () => {
           <HseDashboard @show-toast="showToast" />
         </div>
 
-        <!-- 5. Page Profil : Informations du compte et changement de mot de passe -->
+        <!-- 5. Page Administration : Gestion Utilisateurs & Validation Comptes (ADMIN) -->
+        <div v-if="currentPage === 'admin-users' && user.role === 'ADMIN'" class="page-anim">
+          <UserManagement
+            :token="token"
+            @show-toast="showToast"
+          />
+        </div>
+
+        <!-- 6. Page Profil : Informations du compte et changement de mot de passe -->
         <div v-if="currentPage === 'profile'" class="page-anim">
-          <UserProfile :user="user" @show-toast="showToast" />
+          <UserProfile
+            :user="user"
+            :audits="auditsList"
+            @show-toast="showToast"
+            @user-updated="(updated) => { user = updated }"
+          />
         </div>
 
       </main>
@@ -319,15 +406,6 @@ const handleExecuteDelete = async () => {
         @close="deletingAudit = null"
         @confirm="handleExecuteDelete"
       />
-
-      <!-- Conteneur des notifications toasts de l'application -->
-      <div class="toast-container">
-        <div
-          v-for="t in toasts"
-          :key="t.id"
-          :class="['toast', t.type === 'error' ? 'error' : '']"
-        >{{ t.msg }}</div>
-      </div>
     </div>
 
     <!-- ===================================================================== -->
@@ -340,4 +418,15 @@ const handleExecuteDelete = async () => {
       @after-print="printingAudit = null"
     />
   </template>
+
+  <!-- ======================================================================= -->
+  <!-- CONTENEUR GLOBAL DES NOTIFICATIONS TOASTS                              -->
+  <!-- ======================================================================= -->
+  <div class="toast-container">
+    <div
+      v-for="t in toasts"
+      :key="t.id"
+      :class="['toast', t.type === 'error' ? 'error' : '']"
+    >{{ t.msg }}</div>
+  </div>
 </template>

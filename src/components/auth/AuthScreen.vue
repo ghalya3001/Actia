@@ -20,7 +20,7 @@ Rôle :
 
 <script setup>
 import { ref } from 'vue'
-import { LogIn, UserPlus, ShieldAlert, Mail, Lock, User, Send, CheckCircle2, ArrowLeft } from 'lucide-vue-next'
+import { LogIn, UserPlus, ShieldAlert, Mail, Lock, User, Send, CheckCircle2, ArrowLeft, Eye, EyeOff } from 'lucide-vue-next'
 
 // --- Événements émis vers App.vue ---
 // - loginSuccess : transmet le token JWT d'accès pour initialiser la session
@@ -34,11 +34,13 @@ const activeTab = ref('login')
 // Champs du formulaire de connexion
 const loginEmail = ref('')
 const loginPassword = ref('')
+const showLoginPassword = ref(false)
 
 // Champs du formulaire d'inscription
 const regFullName = ref('')
 const regEmail = ref('')
 const regPassword = ref('')
+const showRegPassword = ref(false)
 
 // Champs du parcours de réinitialisation par code OTP
 const forgotEmail = ref('')
@@ -46,167 +48,161 @@ const otpStep = ref(1)              // 1: Demande du code, 2: Saisie du code et 
 const generatedOtp = ref('')        // Code OTP généré renvoyé par l'API
 const otpCodeInput = ref('')        // Code saisi par l'utilisateur
 const otpNewPassword = ref('')      // Nouveau mot de passe choisi
+const showOtpNewPassword = ref(false)
 const showOtpModal = ref(false)     // Affichage de la modale de démonstration du code OTP
-
-// Indicateur de chargement pour bloquer les clics multiples
 const loading = ref(false)
 
-// URL de base du module d'authentification
-const API_BASE = window.location.origin + "/api/v1/auth"
-
 /**
- * Formate les messages d'erreur renvoyés par FastAPI (chaîne simple, tableau Pydantic ou objet).
- * @param {string|Array|object} detail - Détail de l'erreur HTTP.
- * @param {string} defaultMsg - Message de secours par défaut.
- * @returns {string} Le message d'erreur lisible.
- */
-const formatErrorDetail = (detail, defaultMsg) => {
-  if (typeof detail === 'string') return detail
-  if (Array.isArray(detail) && detail.length > 0) {
-    return detail[0]?.msg ? `Erreur: ${detail[0].msg}` : defaultMsg
-  }
-  if (typeof detail === 'object' && detail !== null) {
-    return detail.msg || detail.detail || defaultMsg
-  }
-  return defaultMsg
-}
-
-/**
- * Traite la soumission du formulaire de connexion via l'endpoint /login.
+ * Traite la connexion de l'utilisateur (OAuth2 Password Flow).
  */
 const handleLogin = async () => {
-  if (loading.value) return
   loading.value = true
-
-  // Préparation du payload sous forme URLSearchParams conforme OAuth2 standard
-  const formData = new URLSearchParams()
-  formData.append('username', loginEmail.value)
-  formData.append('password', loginPassword.value)
-
+  const API_BASE = window.location.origin + "/api/v1/auth"
   try {
+    const params = new URLSearchParams()
+    params.append('username', loginEmail.value.trim().toLowerCase())
+    params.append('password', loginPassword.value)
+
     const res = await fetch(`${API_BASE}/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formData
+      body: params
     })
     const data = await res.json()
 
     if (res.ok) {
-      // Stockage sécurisé des jetons dans le localStorage du navigateur
-      localStorage.setItem("access_token", data.access_token)
-      localStorage.setItem("refresh_token", data.refresh_token)
-      emit('showToast', "Connexion réussie ! Bienvenue sur PlatformActia.")
-      emit('loginSuccess', data.access_token)
+      localStorage.setItem('access_token', data.access_token)
+      localStorage.setItem('refresh_token', data.refresh_token)
+      emit('loginSuccess', data.access_token, data)
+      emit('showToast', 'Connexion réussie ! Bienvenue sur PlatformActia.')
     } else {
-      emit('showToast', formatErrorDetail(data.detail, "Email ou mot de passe incorrect"), 'error')
+      emit('showToast', data.detail || 'Identifiants invalides', 'error')
     }
   } catch (err) {
-    emit('showToast', "Erreur de connexion au serveur", 'error')
+    emit('showToast', 'Impossible de joindre le serveur API.', 'error')
   } finally {
     loading.value = false
   }
 }
 
 /**
- * Traite l'enregistrement d'un nouveau compte via /register.
+ * Traite l'inscription d'un nouvel utilisateur.
  */
 const handleRegister = async () => {
+  loading.value = true
+  const API_BASE = window.location.origin + "/api/v1/auth"
   try {
     const res = await fetch(`${API_BASE}/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        full_name: regFullName.value,
-        email: regEmail.value,
+        email: regEmail.value.trim().toLowerCase(),
+        full_name: regFullName.value.trim(),
         password: regPassword.value
       })
     })
     const data = await res.json()
 
     if (res.ok) {
-      emit('showToast', "Compte Responsable créé avec succès ! Connectez-vous.")
+      emit('showToast', 'Votre compte a été créé avec succès ! Votre demande est en attente d\'approbation par l\'administrateur.')
+      activeTab.value = 'login'
+      loginEmail.value = regEmail.value
+      loginPassword.value = ''
       regFullName.value = ''
       regEmail.value = ''
       regPassword.value = ''
-      activeTab.value = 'login'
     } else {
-      emit('showToast', formatErrorDetail(data.detail, "Erreur d'inscription"), 'error')
+      emit('showToast', data.detail || 'Erreur lors de la création du compte.', 'error')
     }
   } catch (err) {
-    emit('showToast', "Erreur de connexion au serveur", 'error')
+    emit('showToast', 'Impossible de joindre le serveur API.', 'error')
+  } finally {
+    loading.value = false
   }
 }
 
 /**
- * Étape 1 : Demande l'émission d'un code OTP à 6 chiffres via /forgot-password.
+ * Étape 1 : Demande de génération du code OTP par email.
  */
 const handleSendOTP = async () => {
+  loading.value = true
+  const API_BASE = window.location.origin + "/api/v1/auth"
   try {
     const res = await fetch(`${API_BASE}/forgot-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: forgotEmail.value })
+      body: JSON.stringify({ email: forgotEmail.value.trim().toLowerCase() })
     })
     const data = await res.json()
 
-    if (res.ok && data.otp_code) {
-      generatedOtp.value = data.otp_code
-      showOtpModal.value = true // Ouvre le dialogue affichant le code généré
+    if (res.ok) {
+      emit('showToast', data.message)
+      if (data.otp_code) {
+        generatedOtp.value = data.otp_code
+        showOtpModal.value = true
+      } else {
+        otpStep.value = 2
+      }
     } else {
-      emit('showToast', formatErrorDetail(data.detail, "Aucun compte associé à cet email"), 'error')
+      emit('showToast', data.detail || 'Erreur lors de la demande du code.', 'error')
     }
   } catch (err) {
-    emit('showToast', "Erreur lors de l'envoi de l'OTP", 'error')
+    emit('showToast', 'Impossible de joindre le serveur API.', 'error')
+  } finally {
+    loading.value = false
   }
 }
 
 /**
- * Étape 2 : Valide le code OTP et applique le nouveau mot de passe via /reset-password.
+ * Étape 2 : Réinitialisation définitive du mot de passe avec le code OTP validé.
  */
 const handleResetWithOTP = async () => {
+  loading.value = true
+  const API_BASE = window.location.origin + "/api/v1/auth"
   try {
     const res = await fetch(`${API_BASE}/reset-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        email: forgotEmail.value,
-        otp_code: otpCodeInput.value,
+        email: forgotEmail.value.trim().toLowerCase(),
+        otp_code: otpCodeInput.value.trim(),
         new_password: otpNewPassword.value
       })
     })
     const data = await res.json()
 
     if (res.ok) {
-      emit('showToast', "Mot de passe réinitialisé ! Vous pouvez vous connecter.")
-      otpStep.value = 1
+      emit('showToast', data.message)
+      activeTab.value = 'login'
+      loginEmail.value = forgotEmail.value
+      loginPassword.value = ''
       forgotEmail.value = ''
       otpCodeInput.value = ''
       otpNewPassword.value = ''
-      activeTab.value = 'login'
+      otpStep.value = 1
     } else {
-      emit('showToast', formatErrorDetail(data.detail, "Code OTP invalide"), 'error')
+      emit('showToast', data.detail || 'Code invalide ou expiré.', 'error')
     }
   } catch (err) {
-    emit('showToast', "Erreur de réinitialisation", 'error')
+    emit('showToast', 'Impossible de joindre le serveur API.', 'error')
+  } finally {
+    loading.value = false
   }
 }
 </script>
 
 <template>
-  <div style="min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2rem">
-    
-    <!-- En-tête : Titre et Logo de l'application -->
-    <div style="text-align: center; margin-bottom: 2rem">
-      <div style="width: 60px; height: 60px; border-radius: 16px; background: var(--color-primary); color: #00141a; font-weight: 800; font-size: 2rem; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 10px">P</div>
-      <h1 style="font-size: 2rem; font-weight: 800; color: #fff">PlatformActia</h1>
-      <p style="font-size: 0.9rem; color: var(--text-muted)">Portail Sécurisé Responsable HSE · CIPI ACTIA</p>
-    </div>
+  <div class="auth-wrapper">
+    <div class="glass-card auth-card">
+      <div style="text-align: center; margin-bottom: 2rem">
+        <div style="display: inline-flex; align-items: center; justify-content: center; width: 56px; height: 56px; border-radius: 16px; background: rgba(0,201,150,0.15); color: var(--color-primary); margin-bottom: 12px; border: 1px solid rgba(0,201,150,0.3)">
+          <Lock :size="28" />
+        </div>
+        <h1 style="font-size: 1.6rem; font-weight: 800; color: #fff; letter-spacing: -0.5px">Platform<span style="color: var(--color-primary)">Actia</span></h1>
+        <p style="font-size: 0.85rem; color: var(--text-dim); margin-top: 4px">Portail Sécurisé HSE & Supervision d'Usine</p>
+      </div>
 
-    <!-- Carte principale translucide (Glassmorphism) -->
-    <div class="glass-card" style="width: 100%; max-width: 440px">
-      
-      <!-- Barre d'onglets de sélection (Connexion / Inscription / Oublié) -->
-      <div style="display: flex; gap: 8px; border-bottom: 1px solid rgba(0,201,150,0.2); padding-bottom: 1rem; margin-bottom: 1.5rem">
+      <div style="display: flex; gap: 8px; background: rgba(0,0,0,0.25); padding: 4px; border-radius: 10px; margin-bottom: 1.5rem">
         <button type="button" @click="activeTab = 'login'" :style="{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', background: activeTab === 'login' ? 'var(--color-primary)' : 'transparent', color: activeTab === 'login' ? '#00141a' : 'var(--text-muted)', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }"><LogIn :size="16"/> Connexion</button>
         <button type="button" @click="activeTab = 'register'" :style="{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', background: activeTab === 'register' ? 'var(--color-primary)' : 'transparent', color: activeTab === 'register' ? '#00141a' : 'var(--text-muted)', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }"><UserPlus :size="16"/> Inscription</button>
         <button type="button" @click="activeTab = 'forgot'" :style="{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', background: activeTab === 'forgot' ? 'var(--color-primary)' : 'transparent', color: activeTab === 'forgot' ? '#00141a' : 'var(--text-muted)', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }"><ShieldAlert :size="16"/> Oublié</button>
@@ -222,7 +218,26 @@ const handleResetWithOTP = async () => {
         </div>
         <div class="form-group">
           <label class="form-label">Mot de passe</label>
-          <input type="password" class="form-input" placeholder="Votre mot de passe" autocomplete="new-password" v-model="loginPassword" required />
+          <div class="password-input-wrapper">
+            <input 
+              :type="showLoginPassword ? 'text' : 'password'" 
+              class="form-input" 
+              placeholder="Votre mot de passe" 
+              autocomplete="new-password" 
+              v-model="loginPassword" 
+              required 
+            />
+            <button 
+              type="button" 
+              class="btn-toggle-pwd" 
+              @click="showLoginPassword = !showLoginPassword"
+              tabindex="-1"
+              title="Afficher / Masquer le mot de passe"
+            >
+              <EyeOff v-if="showLoginPassword" :size="16" />
+              <Eye v-else :size="16" />
+            </button>
+          </div>
         </div>
         <button type="submit" :disabled="loading" class="btn btn-primary" :style="{ width: '100%', marginTop: '1rem', opacity: loading ? 0.7 : 1 }">
           <LogIn :size="18"/> {{ loading ? "Connexion en cours..." : "Se Connecter" }}
@@ -243,7 +258,27 @@ const handleResetWithOTP = async () => {
         </div>
         <div class="form-group">
           <label class="form-label">Mot de passe (Min 8 caractères)</label>
-          <input type="password" class="form-input" placeholder="Choisissez un mot de passe" minlength="8" autocomplete="new-password" v-model="regPassword" required />
+          <div class="password-input-wrapper">
+            <input 
+              :type="showRegPassword ? 'text' : 'password'" 
+              class="form-input" 
+              placeholder="Choisissez un mot de passe" 
+              minlength="8" 
+              autocomplete="new-password" 
+              v-model="regPassword" 
+              required 
+            />
+            <button 
+              type="button" 
+              class="btn-toggle-pwd" 
+              @click="showRegPassword = !showRegPassword"
+              tabindex="-1"
+              title="Afficher / Masquer le mot de passe"
+            >
+              <EyeOff v-if="showRegPassword" :size="16" />
+              <Eye v-else :size="16" />
+            </button>
+          </div>
         </div>
         <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1rem"><UserPlus :size="18"/> Créer le compte</button>
       </form>
@@ -269,7 +304,26 @@ const handleResetWithOTP = async () => {
         </div>
         <div class="form-group">
           <label class="form-label">Nouveau mot de passe</label>
-          <input type="password" class="form-input" placeholder="Min 8 caractères" minlength="8" v-model="otpNewPassword" required />
+          <div class="password-input-wrapper">
+            <input 
+              :type="showOtpNewPassword ? 'text' : 'password'" 
+              class="form-input" 
+              placeholder="Min 8 caractères" 
+              minlength="8" 
+              v-model="otpNewPassword" 
+              required 
+            />
+            <button 
+              type="button" 
+              class="btn-toggle-pwd" 
+              @click="showOtpNewPassword = !showOtpNewPassword"
+              tabindex="-1"
+              title="Afficher / Masquer le mot de passe"
+            >
+              <EyeOff v-if="showOtpNewPassword" :size="16" />
+              <Eye v-else :size="16" />
+            </button>
+          </div>
         </div>
         <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1rem"><CheckCircle2 :size="18"/> Réinitialiser le mot de passe</button>
         <button type="button" class="btn btn-secondary" style="width: 100%; margin-top: 10px" @click="otpStep = 1"><ArrowLeft :size="16"/> Recommencer</button>
@@ -292,3 +346,49 @@ const handleResetWithOTP = async () => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.auth-wrapper {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 440px;
+}
+
+.password-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.password-input-wrapper input {
+  padding-right: 42px !important;
+  width: 100%;
+}
+
+.btn-toggle-pwd {
+  position: absolute;
+  right: 10px;
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border-radius: 4px;
+  transition: color 0.2s ease;
+}
+
+.btn-toggle-pwd:hover {
+  color: var(--color-primary);
+}
+</style>

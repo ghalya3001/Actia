@@ -50,11 +50,23 @@ class UserResponse(UserBase):
     Ne contient JAMAIS le mot de passe ni son empreinte de hachage.
     """
     id: int
+    role: str = "USER"
+    status: str = "PENDING"
+    rejection_reason: Optional[str] = None
+    reviewed_by: Optional[int] = None
+    reviewed_at: Optional[datetime] = None
     is_active: bool
     created_at: datetime
 
     # Permet à Pydantic de lire directement les attributs d'une instance ORM SQLAlchemy
     model_config = ConfigDict(from_attributes=True)
+
+
+class UserProfileUpdate(BaseModel):
+    """
+    Schéma de mise à jour des informations de profil personnel par l'utilisateur connecté.
+    """
+    full_name: Optional[str] = Field(None, min_length=2, max_length=100)
 
 
 # =============================================================================
@@ -67,6 +79,9 @@ class Token(BaseModel):
     access_token: str                  # Jeton JWT d'accès court terme (60 minutes)
     refresh_token: Optional[str] = None # Jeton de rafraîchissement long terme (7 jours)
     token_type: str = "bearer"         # Type d'autorisation standard HTTP Bearer
+    role: Optional[str] = None         # Rôle de l'utilisateur (USER, ADMIN)
+    status: Optional[str] = None       # Statut du compte (PENDING, APPROVED, REJECTED, SUSPENDED)
+    rejection_reason: Optional[str] = None # Motif en cas de rejet
 
 
 class TokenData(BaseModel):
@@ -136,3 +151,41 @@ class OTPResponse(BaseModel):
     """
     message: str
     otp_code: Optional[str] = None
+
+
+# =============================================================================
+# 5. SCHÉMAS D'ADMINISTRATION & GESTION DES UTILISATEURS (RBAC)
+# =============================================================================
+class AdminUserOut(UserResponse):
+    """
+    Vue complète d'un utilisateur pour le tableau de bord d'administration.
+    Inclut le nom et l'email de l'administrateur ayant examiné le compte.
+    """
+    reviewer_name: Optional[str] = None
+    reviewer_email: Optional[str] = None
+
+
+class AdminStatsOut(BaseModel):
+    """
+    Statistiques globales sur les comptes utilisateurs.
+    """
+    total_users: int
+    pending_users: int
+    approved_users: int
+    rejected_users: int
+    suspended_users: int
+
+
+class RejectUserRequest(BaseModel):
+    """
+    Corps de requête pour rejeter un compte utilisateur avec motif obligatoire.
+    """
+    rejection_reason: str = Field(..., min_length=2, max_length=1000, description="Motif de refus du compte")
+
+
+class UpdateUserRoleRequest(BaseModel):
+    """
+    Corps de requête pour modifier le rôle d'un utilisateur.
+    """
+    role: str = Field(..., description="Nouveau rôle : USER ou ADMIN")
+

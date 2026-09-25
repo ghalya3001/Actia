@@ -23,6 +23,11 @@ from app.schemas.user import (
     VerifyOTPRequest,
     ResetPasswordRequest,
     MsgResponse,
+    OTPResponse,
+    AdminUserOut,
+    AdminStatsOut,
+    RejectUserRequest,
+    UpdateUserRoleRequest,
 )
 
 __all__ = [
@@ -37,4 +42,9 @@ __all__ = [
     "VerifyOTPRequest",
     "ResetPasswordRequest",
     "MsgResponse",
+    "OTPResponse",
+    "AdminUserOut",
+    "AdminStatsOut",
+    "RejectUserRequest",
+    "UpdateUserRoleRequest",
 ]

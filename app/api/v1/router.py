@@ -15,7 +15,7 @@ Rôle :
 """
 
 from fastapi import APIRouter
-from app.api.v1.endpoints import health, auth, audits, dashboard
+from app.api.v1.endpoints import health, auth, audits, dashboard, admin, custom_fields
 
 # Instance principale du routeur API v1
 api_router = APIRouter()
@@ -31,3 +31,11 @@ api_router.include_router(audits.router, prefix="/audits", tags=["Audits HSE"])
 
 # 4. Module du tableau de bord et indicateurs (ex: /api/v1/dashboard/overview)
 api_router.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboard & Widgets"])
+
+# 5. Module d'administration et gestion des utilisateurs (ex: /api/v1/admin/users)
+api_router.include_router(admin.router, prefix="/admin", tags=["Admin User Management"])
+
+# 6. Module des champs personnalisés (ex: /api/v1/custom-fields/definitions)
+api_router.include_router(custom_fields.router, prefix="/custom-fields", tags=["Custom Fields"])
+
+

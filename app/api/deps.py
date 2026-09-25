@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.session import SessionLocal
-from app.models.user import User, UserSession
+from app.models.user import User, UserSession, UserRole, UserStatus
 from app.schemas.user import TokenData
 
 # Configuration du schéma OAuth2 standard indiquant à Swagger l'URL d'obtention du token
@@ -112,3 +112,36 @@ def get_current_user(
         )
 
     return user
+
+
+def get_current_approved_user(
+    current_user: User = Depends(get_current_user)
+) -> User:
+    """
+    Dépendance de sécurité (Status Guard) :
+    Exige que le compte utilisateur soit approuvé (status = 'APPROVED').
+    Rejette toute requête avec HTTP 403 Forbidden si le compte est PENDING, REJECTED ou SUSPENDED.
+    """
+    if current_user.status != UserStatus.APPROVED.value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Accès refusé. Le statut de votre compte est : {current_user.status}."
+        )
+    return current_user
+
+
+def require_admin(
+    current_user: User = Depends(get_current_approved_user)
+) -> User:
+    """
+    Dépendance de sécurité (Role Guard) :
+    Exige que l'utilisateur possède le rôle administrateur (role = 'ADMIN').
+    Rejette toute requête avec HTTP 403 Forbidden si l'utilisateur n'est pas administrateur.
+    """
+    if current_user.role != UserRole.ADMIN.value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Accès refusé. Privilèges administrateur requis."
+        )
+    return current_user
+

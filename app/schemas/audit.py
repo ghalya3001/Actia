@@ -118,6 +118,7 @@ class HSEAuditOut(BaseModel):
 
     items_data: Dict[str, Any]
     user_id: int
+    author_name: Optional[str] = None
     created_at: datetime
 
     class Config:

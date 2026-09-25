@@ -60,6 +60,14 @@ async def lifespan(app: FastAPI):
         Base.metadata.create_all(bind=engine)
         print("[DATABASE] OK - Tables PostgreSQL verifiees et pretes.", flush=True)
 
+        # Migration des colonnes RBAC si nécessaire
+        from app.db.migrate_rbac import migrate_rbac
+        migrate_rbac()
+
+        # Amorçage de l'administrateur par défaut
+        from app.db.seed_admin import seed_admin
+        seed_admin()
+
         # Initialisation du catalogue des KPIs par défaut si nécessaire
         from app.services.kpi_service import KPIService
         from app.db.session import SessionLocal
@@ -137,6 +145,10 @@ def serve_ui(full_path: str = ""):
 # =============================================================================
 # Inclusion du routeur unifié d'API sous le préfixe '/api/v1'
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+# Alias d'accès direct pour l'administration : /api/admin
+from app.api.v1.endpoints import admin as admin_endpoints
+app.include_router(admin_endpoints.router, prefix="/api/admin", tags=["Admin User Management (Alias)"])
 
 
 @app.get("/", tags=["Root"])
