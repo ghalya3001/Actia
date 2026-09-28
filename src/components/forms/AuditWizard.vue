@@ -363,12 +363,51 @@ const submitCustomField = () => {
   closeCustomFieldModal();
 };
 
+// Fonction pour récupérer la valeur initiale stable du seuil cible Target IF
+const getInitialTargetIF = () => {
+  const saved = localStorage.getItem('actia_target_if') || localStorage.getItem('actia_target_tf');
+  if (saved) {
+    const parsed = parseFloat(saved);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  return 2.5;
+};
+
 // Champs spécifiques aux Statistiques Mensuelles d'Accidents
 const selectedAnnee = ref(2026);
-const targetIF = ref(2.5);
+const targetIF = ref(getInitialTargetIF());
 const targetTF = ref(0.0);
 const targetTG = ref(0.0);
 const targetIG = ref(0.0);
+
+// Sauvegarde et persistance immédiate du seuil cible Target IF (dans localStorage + Backend)
+const handleTargetIFChange = async () => {
+  let val = parseFloat(Number(targetIF.value).toFixed(2));
+  if (isNaN(val) || val <= 0) {
+    return;
+  }
+  // Mémorisation locale permanente afin qu'elle reste stable à chaque réouverture
+  localStorage.setItem('actia_target_if', val.toString());
+  localStorage.setItem('actia_target_tf', val.toString());
+
+  // Synchronisation backend avec l'endpoint de seuil réglementaire
+  try {
+    const token = localStorage.getItem('access_token');
+    if (token) {
+      await fetch(`${window.location.origin}/api/v1/dashboard/target-threshold`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ target_if: val, target_tf: val })
+      });
+    }
+  } catch (err) {
+    console.warn('Synchronisation backend Target IF :', err);
+  }
+};
+
 
 // Constantes pour les 12 mois
 const MONTHS_KEYS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
@@ -540,7 +579,9 @@ watch(
       } else if (isStatAccidents.value) {
         const items = props.editingAudit.items_data || {};
         selectedAnnee.value = items.annee || 2026;
-        targetIF.value = items.target_if !== undefined ? items.target_if : 2.5;
+        targetIF.value = (items.target_if !== undefined && items.target_if !== null && Number(items.target_if) > 0) 
+          ? Number(items.target_if) 
+          : getInitialTargetIF();
         targetTF.value = items.target_tf !== undefined ? items.target_tf : 0.0;
         targetTG.value = items.target_tg !== undefined ? items.target_tg : 0.0;
         targetIG.value = items.target_ig !== undefined ? items.target_ig : 0.0;
@@ -566,6 +607,7 @@ watch(
       // Cas 2 : Mode création d'une nouvelle fiche vierge
       if (isStatAccidents.value) {
         initAccidentData();
+        targetIF.value = getInitialTargetIF();
       } else if (isPermis.value) {
         // Initialiser avec les 3 permis fondamentaux
         permisFields.value = [
@@ -585,6 +627,29 @@ watch(
   },
   { immediate: true }
 );
+
+onMounted(async () => {
+  // Synchroniser le seuil cible IF depuis le serveur si non en mode modification spécifique
+  try {
+    const token = localStorage.getItem('access_token');
+    if (token && !props.editingAudit) {
+      const res = await fetch(`${window.location.origin}/api/v1/dashboard/target-threshold`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const serverTarget = data.target_if || data.target_tf;
+        if (serverTarget && Number(serverTarget) > 0) {
+          targetIF.value = Number(serverTarget);
+          localStorage.setItem('actia_target_if', serverTarget.toString());
+          localStorage.setItem('actia_target_tf', serverTarget.toString());
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Chargement du seuil cible distant :', err);
+  }
+});
 
 /**
  * Met à jour un attribut particulier d'une réponse de question (constat, action, photo...).
@@ -889,9 +954,17 @@ const isTargetStepForQuestion = (q, step) => {
             Tous les champs sont numériques. La 1ère ligne (Total Accidents) est la somme automatique des accidents avec arrêt et sans arrêt.
           </p>
         </div>
-        <div style="display: flex; gap: 8px; align-items: center;">
-          <span style="font-size: 0.78rem; font-weight: 700; color: #475569;">Cible IF (Target):</span>
-          <input type="number" step="0.1" v-model.number="targetIF" style="width: 70px; padding: 4px 8px; font-weight: 800; font-size: 0.85rem; border: 1px solid #cbd5e1; border-radius: 6px; text-align: center;" />
+        <div style="display: flex; gap: 8px; align-items: center; background: #fff1f2; padding: 5px 12px; border-radius: 8px; border: 1.5px solid #fecdd3;">
+          <span style="font-size: 0.8rem; font-weight: 700; color: #9f1239;">🎯 Cible IF (Target) :</span>
+          <input 
+            type="number" 
+            step="0.1" 
+            min="0.1"
+            v-model.number="targetIF" 
+            @input="handleTargetIFChange"
+            style="width: 75px; padding: 4px 8px; font-weight: 800; font-size: 0.88rem; border: 1.5px solid #f43f5e; border-radius: 6px; text-align: center; background: #fff; color: #9f1239;" 
+            title="Modifier le seuil cible IF (reste stable jusqu'à nouvelle modification)"
+          />
         </div>
       </div>
 
@@ -1066,16 +1139,40 @@ const isTargetStepForQuestion = (q, step) => {
                 </td>
               </tr>
 
-              <!-- Seuil Cible (Target IF) -->
-              <tr style="background: #fef2f2; border-bottom: 1px solid #cbd5e1;">
-                <td style="padding: 6px 14px; text-align: left; font-weight: 700; color: #991b1b; border: 1px solid #e2e8f0;">
-                  Target IF (Seuil cible)
+              <!-- Seuil Cible (Target IF) - Entièrement modifiable sur toute la ligne -->
+              <tr style="background: #fef2f2; border-bottom: 1.5px solid #fca5a5;">
+                <td style="padding: 8px 14px; text-align: left; font-weight: 700; color: #991b1b; border: 1px solid #fca5a5; background: #fff1f2;">
+                  <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+                    <div>
+                      <span style="font-weight: 800; color: #991b1b; font-size: 0.84rem;">🎯 Target IF (Seuil cible)</span>
+                      <span style="font-size: 0.68rem; color: #b91c1c; display: block; font-weight: 600;">Seuil modifiable en direct</span>
+                    </div>
+                    <span style="font-size: 0.65rem; font-weight: 800; background: #fee2e2; color: #b91c1c; padding: 2px 6px; border-radius: 4px; border: 1px solid #fca5a5; white-space: nowrap;">
+                      ✏️ Modifiable
+                    </span>
+                  </div>
                 </td>
-                <td v-for="m in MONTHS_KEYS" :key="'target-if-' + m" style="padding: 6px; border: 1px solid #e2e8f0; font-weight: 700; color: #991b1b;">
-                  {{ targetIF }}
+                <td v-for="m in MONTHS_KEYS" :key="'target-if-' + m" style="padding: 3px; border: 1px solid #fca5a5; background: #fff5f5;">
+                  <input 
+                    type="number" 
+                    step="0.1" 
+                    min="0.1"
+                    v-model.number="targetIF" 
+                    @input="handleTargetIFChange"
+                    style="width: 100%; padding: 5px 2px; text-align: center; font-weight: 800; border: 1.5px solid #fca5a5; border-radius: 4px; background: #ffffff; color: #991b1b; font-size: 0.85rem;" 
+                    title="Modifier la valeur (s'applique à toute l'année et reste stable)"
+                  />
                 </td>
-                <td style="padding: 6px; border: 1px solid #e2e8f0; font-weight: 800; color: #991b1b; background: #fee2e2;">
-                  {{ targetIF }}
+                <td style="padding: 3px; border: 1px solid #fca5a5; background: #fee2e2;">
+                  <input 
+                    type="number" 
+                    step="0.1" 
+                    min="0.1"
+                    v-model.number="targetIF" 
+                    @input="handleTargetIFChange"
+                    style="width: 100%; padding: 5px 2px; text-align: center; font-weight: 900; border: 2px solid #dc2626; border-radius: 4px; background: #fff; color: #991b1b; font-size: 0.88rem;" 
+                    title="Seuil cible annuel IF (reste stable jusqu'à nouvelle modification)"
+                  />
                 </td>
               </tr>
 

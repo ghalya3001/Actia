@@ -221,9 +221,27 @@ const loadError = ref('')
 
 // Filtres de date
 const filterYear = ref(null)
+const filterMonth = ref(null)
 const filterDateDebut = ref('')
 const filterDateFin = ref('')
 const availableYears = ref([])
+const activePreset = ref('all')
+
+// Catalogue des 12 mois pour le sélecteur
+const MOIS_LIST = [
+  { val: 1, label: '01 - Janvier' },
+  { val: 2, label: '02 - Février' },
+  { val: 3, label: '03 - Mars' },
+  { val: 4, label: '04 - Avril' },
+  { val: 5, label: '05 - Mai' },
+  { val: 6, label: '06 - Juin' },
+  { val: 7, label: '07 - Juillet' },
+  { val: 8, label: '08 - Août' },
+  { val: 9, label: '09 - Septembre' },
+  { val: 10, label: '10 - Octobre' },
+  { val: 11, label: '11 - Novembre' },
+  { val: 12, label: '12 - Décembre' }
+]
 
 // Scorecards
 const totalAudits = ref(0)
@@ -253,6 +271,53 @@ const monthlyLabels = ref([])
 const monthlyTF = ref([])
 const monthlyIF = ref([])
 const targetTF = ref(2.5)
+const showTargetModal = ref(false)
+const tempTargetValue = ref(2.5)
+const isSavingTarget = ref(false)
+
+/**
+ * Ouvre la modale de réglage du seuil réglementaire cible (Target TF)
+ */
+const openTargetModal = () => {
+  tempTargetValue.value = targetTF.value
+  showTargetModal.value = true
+}
+
+/**
+ * Enregistre le nouveau seuil cible via l'API backend et met à jour les graphiques
+ */
+const saveTargetThreshold = async () => {
+  if (!tempTargetValue.value || tempTargetValue.value <= 0) {
+    emit('showToast', 'Veuillez saisir un seuil cible valide (> 0).', 'error')
+    return
+  }
+  isSavingTarget.value = true
+  try {
+    const val = parseFloat(Number(tempTargetValue.value).toFixed(2))
+    const response = await fetch(`${API_BASE}/dashboard/target-threshold`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ target_tf: val })
+    })
+    if (!response.ok) {
+      throw new Error('Erreur lors de la mise à jour du seuil.')
+    }
+    targetTF.value = val
+    localStorage.setItem('actia_target_tf', val.toString())
+    localStorage.setItem('actia_target_if', val.toString())
+    showTargetModal.value = false
+    emit('showToast', `Seuil réglementaire ajusté avec succès : Cible ≤ ${val}`)
+  } catch (err) {
+    console.error('[Dashboard] Erreur sauvegarde seuil:', err)
+    targetTF.value = parseFloat(tempTargetValue.value)
+    localStorage.setItem('actia_target_tf', targetTF.value.toString())
+    localStorage.setItem('actia_target_if', targetTF.value.toString())
+    showTargetModal.value = false
+    emit('showToast', `Seuil cible appliqué : Cible ≤ ${targetTF.value}`)
+  } finally {
+    isSavingTarget.value = false
+  }
+}
 
 const conformiteLabels = ref([])
 const conformiteValues = ref([])
@@ -293,6 +358,7 @@ const fetchDashboardStats = async () => {
     // Construire les query params
     const params = new URLSearchParams()
     if (filterYear.value) params.append('year', filterYear.value)
+    if (filterMonth.value) params.append('month', filterMonth.value)
     if (filterDateDebut.value) params.append('date_debut', filterDateDebut.value)
     if (filterDateFin.value) params.append('date_fin', filterDateFin.value)
 
@@ -373,12 +439,59 @@ const applyDateFilters = async () => {
 }
 
 /**
- * Réinitialiser les filtres de date
+ * Raccourcis prédéfinis de sélection rapide de période
+ */
+const applyPreset = (preset) => {
+  activePreset.value = preset
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = now.getMonth() + 1
+
+  if (preset === 'all') {
+    filterYear.value = null
+    filterMonth.value = null
+    filterDateDebut.value = ''
+    filterDateFin.value = ''
+  } else if (preset === 'current_year') {
+    filterYear.value = y
+    filterMonth.value = null
+    filterDateDebut.value = ''
+    filterDateFin.value = ''
+  } else if (preset === 'current_month') {
+    filterYear.value = y
+    filterMonth.value = m
+    filterDateDebut.value = ''
+    filterDateFin.value = ''
+  } else if (preset === 'last_30_days') {
+    filterYear.value = null
+    filterMonth.value = null
+    const d30 = new Date()
+    d30.setDate(d30.getDate() - 30)
+    filterDateDebut.value = d30.toISOString().split('T')[0]
+    filterDateFin.value = now.toISOString().split('T')[0]
+  } else if (preset === 'last_quarter') {
+    filterYear.value = y
+    filterMonth.value = null
+    const currentQuarter = Math.floor((m - 1) / 3) + 1
+    const qStartMonth = (currentQuarter - 1) * 3 + 1
+    const qEndMonth = qStartMonth + 2
+    const dStart = new Date(y, qStartMonth - 1, 1)
+    const dEnd = new Date(y, qEndMonth, 0)
+    filterDateDebut.value = dStart.toISOString().split('T')[0]
+    filterDateFin.value = dEnd.toISOString().split('T')[0]
+  }
+  applyDateFilters()
+}
+
+/**
+ * Réinitialiser tous les filtres de date
  */
 const resetDateFilters = () => {
   filterYear.value = null
+  filterMonth.value = null
   filterDateDebut.value = ''
   filterDateFin.value = ''
+  activePreset.value = 'all'
   applyDateFilters()
 }
 
@@ -659,8 +772,17 @@ const responsablesList = computed(() => {
 const filterLabel = computed(() => {
   const parts = []
   if (filterYear.value) parts.push(`Année ${filterYear.value}`)
-  if (filterDateDebut.value) parts.push(`Du ${filterDateDebut.value}`)
-  if (filterDateFin.value) parts.push(`Au ${filterDateFin.value}`)
+  if (filterMonth.value) {
+    const mObj = MOIS_LIST.find(m => m.val === Number(filterMonth.value))
+    if (mObj) parts.push(`Mois : ${mObj.label.split(' - ')[1]}`)
+  }
+  if (filterDateDebut.value && filterDateFin.value) {
+    parts.push(`Du ${filterDateDebut.value} au ${filterDateFin.value}`)
+  } else if (filterDateDebut.value) {
+    parts.push(`Du ${filterDateDebut.value} jusqu'à aujourd'hui`)
+  } else if (filterDateFin.value) {
+    parts.push(`Jusqu'au ${filterDateFin.value}`)
+  }
   return parts.length > 0 ? parts.join(' · ') : 'Toutes les données'
 })
 
@@ -761,32 +883,8 @@ const radarVigilance = computed(() => {
         </p>
       </div>
 
-      <!-- Boutons d'actions rapides de l'en-tête -->
+      <!-- Boutons d'actions rapides de l'en-tête (Bouton Refresh uniquement) -->
       <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-        <!-- Bouton Définir un Nouveau KPI (Studio) : ouvre la modale KpiDefinitionModal -->
-        <button
-          @click="showKpiModal = true"
-          style="
-            background: linear-gradient(135deg, rgba(0, 201, 150, 0.25) 0%, rgba(56, 189, 248, 0.25) 100%);
-            border: 1.5px solid var(--color-primary);
-            color: #ffffff;
-            padding: 8px 18px;
-            border-radius: var(--radius-sm);
-            font-size: 0.82rem;
-            font-weight: 800;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            cursor: pointer;
-            box-shadow: 0 0 16px rgba(0, 201, 150, 0.35);
-            transition: all 0.2s ease;
-          "
-        >
-          <Sparkles :size="16" color="var(--color-primary)" />
-          <span>+ Définir un Nouveau KPI</span>
-        </button>
-
-        <!-- Bouton Refresh : déclenche l'actualisation visuelle des données -->
         <button
           @click="handleRefreshSnapshots"
           :disabled="isRefreshing"
@@ -794,15 +892,16 @@ const radarVigilance = computed(() => {
             background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-dark) 100%);
             border: none;
             color: #001c24;
-            padding: 8px 16px;
+            padding: 8px 18px;
             border-radius: var(--radius-sm);
-            font-size: 0.8rem;
+            font-size: 0.82rem;
             font-weight: 800;
             display: flex;
             align-items: center;
             gap: 6px;
             cursor: pointer;
             box-shadow: 0 4px 14px rgba(0, 201, 150, 0.3);
+            transition: all 0.2s ease;
           "
         >
           <RefreshCw :size="15" :class="{ 'spin-anim': isRefreshing }" />
@@ -812,83 +911,209 @@ const radarVigilance = computed(() => {
     </div>
 
     <!-- ===================================================================== -->
-    <!-- BARRE DE FILTRES DE DATE                                               -->
+    <!-- NOUVELLE BARRE DE FILTRES DESIGN, CONFORTABLE ET FLEXIBLE              -->
     <!-- ===================================================================== -->
     <div
       class="glass-card"
       style="
-        padding: 1rem 1.5rem;
+        padding: 1.25rem 1.5rem;
         display: flex;
-        align-items: center;
+        flex-direction: column;
         gap: 1rem;
-        flex-wrap: wrap;
-        border: 1px solid rgba(0, 201, 150, 0.2);
+        border: 1px solid rgba(0, 201, 150, 0.25);
+        background: linear-gradient(135deg, rgba(0, 32, 42, 0.85) 0%, rgba(0, 20, 26, 0.95) 100%);
+        border-radius: var(--radius-md);
+        box-shadow: 0 8px 24px rgba(0,0,0,0.3);
       "
     >
-      <div style="display: flex; align-items: center; gap: 6px; color: var(--color-primary); font-weight: 800; font-size: 0.82rem;">
-        <Calendar :size="16" />
-        <span>Filtrer par période</span>
+      <!-- LIGNE 1 : Raccourcis Rapides (Preset Chips) & Badge de Statut Actif -->
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+          <span style="font-size: 0.74rem; font-weight: 800; color: var(--color-primary); text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 5px; margin-right: 4px;">
+            <SlidersHorizontal :size="14" /> Périodes :
+          </span>
+
+          <button
+            type="button"
+            @click="applyPreset('all')"
+            :style="{
+              background: (!filterYear && !filterMonth && !filterDateDebut && !filterDateFin) ? 'var(--color-primary)' : 'rgba(255,255,255,0.06)',
+              color: (!filterYear && !filterMonth && !filterDateDebut && !filterDateFin) ? '#001c24' : '#cbd5e1',
+              borderColor: (!filterYear && !filterMonth && !filterDateDebut && !filterDateFin) ? 'var(--color-primary)' : 'rgba(255,255,255,0.1)'
+            }"
+            style="border: 1px solid; padding: 4px 12px; border-radius: 20px; font-size: 0.76rem; font-weight: 700; cursor: pointer; transition: all 0.2s ease;"
+          >
+            Toutes les données
+          </button>
+
+          <button
+            type="button"
+            @click="applyPreset('current_year')"
+            :style="{
+              background: (filterYear === 2026 && !filterMonth && !filterDateDebut) ? 'var(--color-primary)' : 'rgba(255,255,255,0.06)',
+              color: (filterYear === 2026 && !filterMonth && !filterDateDebut) ? '#001c24' : '#cbd5e1',
+              borderColor: (filterYear === 2026 && !filterMonth && !filterDateDebut) ? 'var(--color-primary)' : 'rgba(255,255,255,0.1)'
+            }"
+            style="border: 1px solid; padding: 4px 12px; border-radius: 20px; font-size: 0.76rem; font-weight: 700; cursor: pointer; transition: all 0.2s ease;"
+          >
+            Année 2026
+          </button>
+
+          <button
+            type="button"
+            @click="applyPreset('current_month')"
+            :style="{
+              background: (filterMonth === (new Date().getMonth() + 1)) ? 'var(--color-primary)' : 'rgba(255,255,255,0.06)',
+              color: (filterMonth === (new Date().getMonth() + 1)) ? '#001c24' : '#cbd5e1',
+              borderColor: (filterMonth === (new Date().getMonth() + 1)) ? 'var(--color-primary)' : 'rgba(255,255,255,0.1)'
+            }"
+            style="border: 1px solid; padding: 4px 12px; border-radius: 20px; font-size: 0.76rem; font-weight: 700; cursor: pointer; transition: all 0.2s ease;"
+          >
+            Ce Mois-ci
+          </button>
+
+          <button
+            type="button"
+            @click="applyPreset('last_quarter')"
+            :style="{
+              background: activePreset === 'last_quarter' ? 'var(--color-primary)' : 'rgba(255,255,255,0.06)',
+              color: activePreset === 'last_quarter' ? '#001c24' : '#cbd5e1',
+              borderColor: activePreset === 'last_quarter' ? 'var(--color-primary)' : 'rgba(255,255,255,0.1)'
+            }"
+            style="border: 1px solid; padding: 4px 12px; border-radius: 20px; font-size: 0.76rem; font-weight: 700; cursor: pointer; transition: all 0.2s ease;"
+          >
+            Trimestre
+          </button>
+
+          <button
+            type="button"
+            @click="applyPreset('last_30_days')"
+            :style="{
+              background: activePreset === 'last_30_days' ? 'var(--color-primary)' : 'rgba(255,255,255,0.06)',
+              color: activePreset === 'last_30_days' ? '#001c24' : '#cbd5e1',
+              borderColor: activePreset === 'last_30_days' ? 'var(--color-primary)' : 'rgba(255,255,255,0.1)'
+            }"
+            style="border: 1px solid; padding: 4px 12px; border-radius: 20px; font-size: 0.76rem; font-weight: 700; cursor: pointer; transition: all 0.2s ease;"
+          >
+            30 Derniers Jours
+          </button>
+        </div>
+
+        <!-- Indicateur actif & Réinitialisation -->
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 0.78rem; color: #a8e063; font-weight: 700; background: rgba(168, 224, 99, 0.12); padding: 4px 12px; border-radius: 16px; border: 1px solid rgba(168, 224, 99, 0.25);">
+            📊 {{ filterLabel }}
+          </span>
+          <button
+            v-if="filterYear || filterMonth || filterDateDebut || filterDateFin"
+            @click="resetDateFilters"
+            style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.35); color: #fca5a5; padding: 4px 10px; border-radius: 16px; font-size: 0.74rem; font-weight: 700; cursor: pointer; transition: all 0.15s ease;"
+            title="Effacer tous les filtres"
+          >
+            ✕ Réinitialiser
+          </button>
+        </div>
       </div>
 
-      <!-- Filtre par Année -->
-      <div style="display: flex; align-items: center; gap: 6px;">
-        <label style="font-size: 0.78rem; color: var(--text-muted); font-weight: 700;">Année :</label>
-        <select
-          v-model="filterYear"
-          @change="applyDateFilters"
-          class="form-input"
-          style="background: rgba(0,28,36,0.9); border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 6px 10px; border-radius: var(--radius-sm); font-size: 0.8rem; font-weight: 600; cursor: pointer; min-width: 90px;"
-        >
-          <option :value="null">Toutes</option>
-          <option v-for="y in availableYears" :key="y" :value="y">{{ y }}</option>
-        </select>
+      <!-- LIGNE 2 : Sélecteurs Détaillés (Année, Mois et Période personnalisée) -->
+      <div style="display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap; padding-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.06);">
+        
+        <!-- BLOC 1 : Navigation par Année & Mois -->
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <!-- Choix Année (liste complète 2015 à 2035) -->
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <label style="font-size: 0.78rem; color: var(--text-muted); font-weight: 700;">Année :</label>
+            <select
+              v-model="filterYear"
+              @change="() => { activePreset = 'custom'; applyDateFilters() }"
+              class="form-input"
+              style="background: rgba(0,28,36,0.95); border: 1px solid rgba(0, 201, 150, 0.3); color: #fff; padding: 6px 12px; border-radius: var(--radius-sm); font-size: 0.82rem; font-weight: 700; cursor: pointer; min-width: 100px;"
+            >
+              <option :value="null">Toutes les années</option>
+              <option v-for="y in availableYears" :key="y" :value="y">{{ y }}</option>
+            </select>
+          </div>
+
+          <!-- Choix Mois -->
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <label style="font-size: 0.78rem; color: var(--text-muted); font-weight: 700;">Mois :</label>
+            <select
+              v-model="filterMonth"
+              @change="() => { activePreset = 'custom'; applyDateFilters() }"
+              class="form-input"
+              style="background: rgba(0,28,36,0.95); border: 1px solid rgba(0, 201, 150, 0.3); color: #fff; padding: 6px 12px; border-radius: var(--radius-sm); font-size: 0.82rem; font-weight: 700; cursor: pointer; min-width: 130px;"
+            >
+              <option :value="null">Tous les mois</option>
+              <option v-for="m in MOIS_LIST" :key="m.val" :value="m.val">{{ m.label }}</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="color: var(--text-dim); font-size: 0.75rem; font-weight: 700;">OU</div>
+
+        <!-- BLOC 2 : Plage Libre Du / Au -->
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <label style="font-size: 0.78rem; color: var(--text-muted); font-weight: 700;">Du :</label>
+            <input
+              v-model="filterDateDebut"
+              @change="() => { activePreset = 'custom'; applyDateFilters() }"
+              @keyup.enter="applyDateFilters"
+              type="date"
+              class="form-input"
+              style="background: rgba(0,28,36,0.95); border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 6px 10px; border-radius: var(--radius-sm); font-size: 0.8rem; font-weight: 600; cursor: pointer;"
+            />
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <label style="font-size: 0.78rem; color: var(--text-muted); font-weight: 700;">Au :</label>
+            <input
+              v-model="filterDateFin"
+              @change="() => { activePreset = 'custom'; applyDateFilters() }"
+              @keyup.enter="applyDateFilters"
+              type="date"
+              class="form-input"
+              style="background: rgba(0,28,36,0.95); border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 6px 10px; border-radius: var(--radius-sm); font-size: 0.8rem; font-weight: 600; cursor: pointer;"
+            />
+          </div>
+
+          <button
+            type="button"
+            @click="applyDateFilters"
+            style="background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-dark) 100%); border: none; color: #001c24; padding: 6px 16px; border-radius: var(--radius-sm); font-size: 0.8rem; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 5px;"
+          >
+            <Filter :size="13" />
+            Filtrer
+          </button>
+        </div>
+
       </div>
+    </div>
 
-      <!-- Filtre Date de Début -->
-      <div style="display: flex; align-items: center; gap: 6px;">
-        <label style="font-size: 0.78rem; color: var(--text-muted); font-weight: 700;">Du :</label>
-        <input
-          v-model="filterDateDebut"
-          @keyup.enter="applyDateFilters"
-          type="date"
-          class="form-input"
-          style="background: rgba(0,28,36,0.9); border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 6px 10px; border-radius: var(--radius-sm); font-size: 0.8rem; font-weight: 600; cursor: pointer;"
-        />
+    <!-- BANDEAU D'ALERTE : AUCUNE DONNÉE POUR CETTE SÉLECTION -->
+    <div
+      v-if="totalAudits === 0 && !isLoading"
+      style="
+        background: rgba(245, 158, 11, 0.12);
+        border: 1px solid rgba(245, 158, 11, 0.35);
+        border-radius: var(--radius-md);
+        padding: 1rem 1.4rem;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        color: #fef3c7;
+        font-size: 0.86rem;
+      "
+    >
+      <AlertCircle :size="22" color="#f59e0b" style="flex-shrink: 0;" />
+      <div>
+        <div style="font-weight: 800; color: #fff;">
+          Aucune donnée enregistrée pour {{ filterYear ? `l'année ${filterYear}` : 'cette sélection temporelle' }} pour le moment.
+        </div>
+        <div style="font-size: 0.78rem; color: #fde68a; margin-top: 3px;">
+          Les compteurs sont à zéro et les visualisations graphiques sont vierges en attente de formulaires ou d'audits réalisés sur cette période.
+        </div>
       </div>
-
-      <!-- Filtre Date de Fin -->
-      <div style="display: flex; align-items: center; gap: 6px;">
-        <label style="font-size: 0.78rem; color: var(--text-muted); font-weight: 700;">Au :</label>
-        <input
-          v-model="filterDateFin"
-          @keyup.enter="applyDateFilters"
-          type="date"
-          class="form-input"
-          style="background: rgba(0,28,36,0.9); border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 6px 10px; border-radius: var(--radius-sm); font-size: 0.8rem; font-weight: 600; cursor: pointer;"
-        />
-      </div>
-
-      <!-- Boutons Appliquer / Réinitialiser -->
-      <button
-        @click="applyDateFilters"
-        style="background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-dark) 100%); border: none; color: #001c24; padding: 7px 16px; border-radius: var(--radius-sm); font-size: 0.8rem; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 5px;"
-      >
-        <Filter :size="14" />
-        Appliquer
-      </button>
-
-      <button
-        v-if="filterYear || filterDateDebut || filterDateFin"
-        @click="resetDateFilters"
-        style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: var(--text-muted); padding: 6px 12px; border-radius: var(--radius-sm); font-size: 0.78rem; font-weight: 700; cursor: pointer;"
-      >
-        Réinitialiser
-      </button>
-
-      <!-- Label du filtre actif -->
-      <span style="margin-left: auto; font-size: 0.75rem; color: var(--text-dim); font-weight: 600;">
-        📊 {{ filterLabel }}
-      </span>
     </div>
 
     <!-- ===================================================================== -->
@@ -925,9 +1150,28 @@ const radarVigilance = computed(() => {
             <TrendingUp v-else :size="14" />
             {{ tfVariation >= 0 ? '+' : '' }}{{ tfVariation.toFixed(2) }} vs mois préc.
           </span>
-          <span style="background: rgba(16, 185, 129, 0.15); color: #10b981; font-size: 0.7rem; font-weight: 800; padding: 2px 7px; border-radius: 6px;">
-            Cible &le; {{ targetTF }}
-          </span>
+          <button
+            type="button"
+            @click="openTargetModal"
+            title="Cliquez pour modifier le seuil réglementaire directement depuis la plateforme"
+            style="
+              background: rgba(16, 185, 129, 0.15);
+              border: 1px solid rgba(16, 185, 129, 0.4);
+              color: #10b981;
+              font-size: 0.72rem;
+              font-weight: 800;
+              padding: 3px 8px;
+              border-radius: 6px;
+              cursor: pointer;
+              display: flex;
+              align-items: center;
+              gap: 5px;
+              transition: all 0.2s ease;
+            "
+          >
+            <span>Cible &le; {{ targetTF }}</span>
+            <SlidersHorizontal :size="11" />
+          </button>
         </div>
       </div>
 
@@ -1329,12 +1573,31 @@ const radarVigilance = computed(() => {
               </div>
               <h3 style="font-size: 1.05rem; font-weight: 800; color: #ffffff; display: flex; align-items: center; gap: 8px; margin-top: 2px;">
                 <Activity :size="18" color="var(--color-primary)" />
-                Courbe Combinée : TF & IF vs Objectif Target 2,5
+                Courbe Combinée : TF & IF vs Objectif Target {{ targetTF }}
               </h3>
             </div>
-            <span style="background: rgba(0, 201, 150, 0.1); border: 1px solid rgba(0, 201, 150, 0.25); color: var(--color-primary); font-size: 0.72rem; font-weight: 700; padding: 4px 10px; border-radius: 20px;">
-              Indicateur Fréquence
-            </span>
+            <button
+              type="button"
+              @click="openTargetModal"
+              title="Ajuster le seuil réglementaire maximum (Target TF)"
+              style="
+                background: rgba(0, 201, 150, 0.12);
+                border: 1px solid rgba(0, 201, 150, 0.3);
+                color: var(--color-primary);
+                font-size: 0.72rem;
+                font-weight: 700;
+                padding: 4px 10px;
+                border-radius: 20px;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                gap: 5px;
+                transition: all 0.2s ease;
+              "
+            >
+              <SlidersHorizontal :size="12" />
+              <span>Ajuster le Seuil ({{ targetTF }})</span>
+            </button>
           </div>
           <div style="height: 250px;">
             <Line :data="monthlyKpiData" :options="monthlyKpiOptions" />
@@ -1696,6 +1959,150 @@ const radarVigilance = computed(() => {
       @save-kpi="handleSaveCustomKpi"
       @show-toast="(msg, type) => emit('showToast', msg, type)"
     />
+
+    <!-- ===================================================================== -->
+    <!-- MODALE : AJUSTEMENT DU SEUIL CIBLE RÉGLEMENTAIRE (TARGET TF & IF)     -->
+    <!-- ===================================================================== -->
+    <div
+      v-if="showTargetModal"
+      style="
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 10, 15, 0.85);
+        backdrop-filter: blur(8px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+        padding: 1rem;
+      "
+      @click.self="showTargetModal = false"
+    >
+      <div
+        class="glass-card"
+        style="
+          background: #001c24;
+          border: 1px solid rgba(0, 201, 150, 0.4);
+          border-radius: var(--radius-lg);
+          width: 100%;
+          max-width: 440px;
+          padding: 1.75rem;
+          box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7);
+        "
+      >
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <div style="width: 34px; height: 34px; border-radius: 8px; background: rgba(0, 201, 150, 0.15); color: var(--color-primary); display: flex; align-items: center; justify-content: center;">
+              <SlidersHorizontal :size="18" />
+            </div>
+            <h3 style="font-size: 1.1rem; font-weight: 800; color: #fff; margin: 0;">
+              Ajuster le Seuil Réglementaire
+            </h3>
+          </div>
+          <button
+            type="button"
+            @click="showTargetModal = false"
+            style="background: transparent; border: none; color: var(--text-dim); cursor: pointer; font-size: 1.2rem;"
+          >
+            ✕
+          </button>
+        </div>
+
+        <p style="font-size: 0.82rem; color: var(--text-muted); line-height: 1.45; margin-bottom: 1.25rem;">
+          Définissez la cible maximale tolérée pour le <strong>Taux de Fréquence (TF)</strong>. Cette valeur mettra à jour la ligne rouge sur le graphique d'évolution et le statut de conformité des scorecards.
+        </p>
+
+        <!-- Saisie numérique -->
+        <div style="margin-bottom: 1.25rem;">
+          <label style="display: block; font-size: 0.78rem; font-weight: 700; color: var(--text-muted); margin-bottom: 6px;">
+            Valeur du seuil cible (accidents / 10⁶ h) :
+          </label>
+          <input
+            v-model.number="tempTargetValue"
+            type="number"
+            step="0.1"
+            min="0.1"
+            max="20.0"
+            class="form-input"
+            style="
+              width: 100%;
+              background: rgba(0, 28, 36, 0.9);
+              border: 1px solid rgba(0, 201, 150, 0.4);
+              color: #fff;
+              padding: 10px 14px;
+              border-radius: var(--radius-sm);
+              font-size: 1.15rem;
+              font-weight: 800;
+              font-family: var(--font-mono);
+            "
+          />
+        </div>
+
+        <!-- Raccourcis rapides -->
+        <div style="margin-bottom: 1.5rem;">
+          <span style="font-size: 0.74rem; color: var(--text-dim); display: block; margin-bottom: 6px;">
+            Raccourcis standard HSE :
+          </span>
+          <div style="display: flex; gap: 8px;">
+            <button
+              v-for="preset in [1.5, 2.0, 2.5, 3.0, 4.0]"
+              :key="preset"
+              type="button"
+              @click="tempTargetValue = preset"
+              :style="{
+                background: tempTargetValue === preset ? 'var(--color-primary)' : 'rgba(255,255,255,0.06)',
+                color: tempTargetValue === preset ? '#001c24' : '#cbd5e1',
+                border: '1px solid ' + (tempTargetValue === preset ? 'var(--color-primary)' : 'rgba(255,255,255,0.12)')
+              }"
+              style="padding: 5px 12px; border-radius: 6px; font-size: 0.78rem; font-weight: 700; cursor: pointer; transition: all 0.15s ease;"
+            >
+              {{ preset }}
+            </button>
+          </div>
+        </div>
+
+        <!-- Actions -->
+        <div style="display: flex; justify-content: flex-end; gap: 10px;">
+          <button
+            type="button"
+            @click="showTargetModal = false"
+            style="
+              background: rgba(255, 255, 255, 0.08);
+              border: 1px solid rgba(255, 255, 255, 0.15);
+              color: var(--text-muted);
+              padding: 8px 16px;
+              border-radius: var(--radius-sm);
+              font-size: 0.82rem;
+              font-weight: 700;
+              cursor: pointer;
+            "
+          >
+            Annuler
+          </button>
+          <button
+            type="button"
+            @click="saveTargetThreshold"
+            :disabled="isSavingTarget"
+            style="
+              background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-dark) 100%);
+              border: none;
+              color: #001c24;
+              padding: 8px 18px;
+              border-radius: var(--radius-sm);
+              font-size: 0.82rem;
+              font-weight: 800;
+              cursor: pointer;
+              display: flex;
+              align-items: center;
+              gap: 6px;
+            "
+          >
+            <CheckCircle2 :size="16" />
+            {{ isSavingTarget ? 'Enregistrement...' : 'Enregistrer le Seuil' }}
+          </button>
+        </div>
+      </div>
+    </div>
 
   </div>
 </template>

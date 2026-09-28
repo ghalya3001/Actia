@@ -351,7 +351,74 @@ def delete_widget(
 
 
 # =============================================================================
-# 8. ENDPOINT : STATISTIQUES CONSOLIDÉES DU DASHBOARD (DONNÉES RÉELLES BDD)
+# 8. ENDPOINT : GESTION DU SEUIL CIBLE RÉGLEMENTAIRE (TARGET TF & IF)
+# =============================================================================
+class TargetThresholdUpdate(BaseModel):
+    """Schéma de mise à jour du seuil réglementaire maximum (ex: 2.50)."""
+    target_tf: Optional[float] = None
+    target_if: Optional[float] = None
+
+
+@router.put(
+    "/target-threshold",
+    summary="Mettre à jour le seuil cible réglementaire (Target TF & IF) depuis la plateforme"
+)
+def update_target_threshold(
+    payload: TargetThresholdUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_approved_user)
+) -> Any:
+    """
+    Permet au responsable HSE de modifier facilement le seuil réglementaire (ex: 2.5)
+    directement depuis l'interface du tableau de bord ou depuis la grille de statistiques accidents.
+    La valeur est persistée en base de données dans les bilans annuels d'accidents (target_if et target_tf).
+    """
+    raw_val = payload.target_if if payload.target_if is not None else payload.target_tf
+    if raw_val is None or raw_val <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Le seuil réglementaire doit être une valeur strictement positive (> 0)."
+        )
+
+    val = round(raw_val, 2)
+    accident_subs = db.query(AccidentTravailSubmission).all()
+    for s in accident_subs:
+        s.target_tf = val
+        s.target_if = val
+    db.commit()
+    return {
+        "message": f"Seuil réglementaire ajusté avec succès : Cible ≤ {val}",
+        "target_tf": val,
+        "target_if": val
+    }
+
+
+@router.get(
+    "/target-threshold",
+    summary="Consulter le seuil cible réglementaire actuel (Target TF & IF)"
+)
+def get_target_threshold(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_approved_user)
+) -> Any:
+    """
+    Retourne la cible réglementaire actuellement active en base de données.
+    """
+    first_target = db.query(AccidentTravailSubmission).filter(
+        (AccidentTravailSubmission.target_if > 0) | (AccidentTravailSubmission.target_tf > 0)
+    ).first()
+    val = 2.5
+    if first_target:
+        val = first_target.target_if if (first_target.target_if and first_target.target_if > 0) else (first_target.target_tf or 2.5)
+    return {
+        "target_tf": val,
+        "target_if": val
+    }
+
+
+
+# =============================================================================
+# 9. ENDPOINT : STATISTIQUES CONSOLIDÉES DU DASHBOARD (DONNÉES RÉELLES BDD)
 # =============================================================================
 
 # Noms de mois en français pour les labels des graphiques
@@ -379,6 +446,7 @@ class DashboardStatsOut(BaseModel):
     """
     # --- Filtres appliqués ---
     filter_year: Optional[int] = None
+    filter_month: Optional[int] = None
     filter_date_debut: Optional[str] = None
     filter_date_fin: Optional[str] = None
     available_years: List[int] = []
@@ -446,6 +514,7 @@ def _parse_date_audit(date_str: str) -> Optional[date]:
 )
 def get_dashboard_stats(
     year: Optional[int] = Query(None, description="Filtrer par année (ex: 2026)"),
+    month: Optional[int] = Query(None, ge=1, le=12, description="Filtrer par mois (1 à 12)"),
     date_debut: Optional[str] = Query(None, description="Date de début au format YYYY-MM-DD"),
     date_fin: Optional[str] = Query(None, description="Date de fin au format YYYY-MM-DD"),
     db: Session = Depends(get_db),
@@ -454,23 +523,23 @@ def get_dashboard_stats(
     """
     Retourne l'ensemble des données consolidées du Dashboard HSE calculées
     directement depuis les tables de la base de données.
-    Supporte 3 modes de filtrage combinables :
-      - Par année uniquement (year=2026)
-      - Par plage de dates (date_debut=2026-01-01&date_fin=2026-06-30)
-      - Par année + plage de dates
+    Supporte les filtres par année, par mois, et par plage de dates.
     """
     result = DashboardStatsOut(
         filter_year=year,
+        filter_month=month,
         filter_date_debut=date_debut,
         filter_date_fin=date_fin,
     )
 
     # ------------------------------------------------------------------
-    # 0. Déterminer les années disponibles dans la base
+    # 0. Déterminer la liste complète des choix d'années disponibles
+    #    (plage étendue de 2015 à 2035, enrichie des années de la BDD)
     # ------------------------------------------------------------------
     all_submissions = db.query(FormSubmission).all()
     all_accidents = db.query(AccidentTravailSubmission).all()
-    years_set = set()
+    curr_year = datetime.now().year
+    years_set = set(range(2015, max(curr_year + 10, 2036)))
     for s in all_submissions:
         d = _parse_date_audit(s.date_audit)
         if d:
@@ -478,14 +547,12 @@ def get_dashboard_stats(
     for a in all_accidents:
         if a.annee:
             years_set.add(a.annee)
-    if not years_set:
-        years_set.add(datetime.now().year)
     result.available_years = sorted(years_set, reverse=True)
 
     # ------------------------------------------------------------------
     # 1. Filtrer les soumissions selon les critères de date
     # ------------------------------------------------------------------
-    has_date_filter = bool(year or date_debut or date_fin)
+    has_date_filter = bool(year or month or date_debut or date_fin)
     filtered_submissions = []
     for s in all_submissions:
         d = _parse_date_audit(s.date_audit)
@@ -495,10 +562,15 @@ def get_dashboard_stats(
             continue
         if year and d.year != year:
             continue
+        if month and d.month != month:
+            continue
         if date_debut:
             try:
                 dd = datetime.strptime(date_debut, "%Y-%m-%d").date()
                 if d < dd:
+                    continue
+                # Si date_fin non renseignée, borner jusqu'à aujourd'hui (maintenant)
+                if not date_fin and d > date.today():
                     continue
             except ValueError:
                 pass
@@ -590,40 +662,52 @@ def get_dashboard_stats(
         if len(result.monthly_tf) >= 2:
             result.tf_variation = round(result.monthly_tf[-1] - result.monthly_tf[-2], 2)
 
-    # Target TF depuis la soumission accident
-    if accident_subs:
-        result.target_tf = accident_subs[0].target_tf or 2.5
+    # Target TF / IF configuré en base ou par défaut
+    first_target = db.query(AccidentTravailSubmission).filter(
+        (AccidentTravailSubmission.target_if > 0) | (AccidentTravailSubmission.target_tf > 0)
+    ).first()
+    if first_target and (first_target.target_if or first_target.target_tf):
+        result.target_tf = first_target.target_if if (first_target.target_if and first_target.target_if > 0) else (first_target.target_tf or 2.5)
+    elif accident_subs and (accident_subs[0].target_if or accident_subs[0].target_tf):
+        result.target_tf = accident_subs[0].target_if if (accident_subs[0].target_if and accident_subs[0].target_if > 0) else (accident_subs[0].target_tf or 2.5)
+    else:
+        result.target_tf = 2.5
 
     # ------------------------------------------------------------------
     # 6. Jours sans accident (calculé depuis les données mensuelles)
     # ------------------------------------------------------------------
-    today = date.today()
-    all_accident_subs = db.query(AccidentTravailSubmission).all()
-    last_accident_date = None
-
-    for acc_sub in all_accident_subs:
-        for item in sorted(acc_sub.monthly_items, key=lambda x: x.mois_index, reverse=True):
-            if item.nb_accidents_avec_arret > 0:
-                # Approximer la date au milieu du mois
-                try:
-                    d = date(acc_sub.annee, item.mois_index, 15)
-                    if last_accident_date is None or d > last_accident_date:
-                        last_accident_date = d
-                except ValueError:
-                    pass
-
-    if last_accident_date:
-        result.jours_sans_accident = (today - last_accident_date).days
-        result.dernier_accident_date = last_accident_date.strftime("%d/%m/%Y")
+    # Si une année spécifique sans aucune donnée a été sélectionnée, afficher 0
+    if year and not filtered_submissions and not accident_subs:
+        result.jours_sans_accident = 0
+        result.dernier_accident_date = f"Aucune donnée enregistrée pour {year}"
     else:
-        # Si aucun accident enregistré, compter depuis la plus ancienne soumission
-        if all_submissions:
-            dates_parsed = [_parse_date_audit(s.date_audit) for s in all_submissions]
-            valid_dates = [d for d in dates_parsed if d]
-            if valid_dates:
-                oldest = min(valid_dates)
-                result.jours_sans_accident = (today - oldest).days
-                result.dernier_accident_date = "Aucun accident enregistré"
+        today = date.today()
+        all_accident_subs = db.query(AccidentTravailSubmission).all()
+        last_accident_date = None
+
+        for acc_sub in all_accident_subs:
+            for item in sorted(acc_sub.monthly_items, key=lambda x: x.mois_index, reverse=True):
+                if item.nb_accidents_avec_arret > 0:
+                    # Approximer la date au milieu du mois
+                    try:
+                        d = date(acc_sub.annee, item.mois_index, 15)
+                        if last_accident_date is None or d > last_accident_date:
+                            last_accident_date = d
+                    except ValueError:
+                        pass
+
+        if last_accident_date:
+            result.jours_sans_accident = (today - last_accident_date).days
+            result.dernier_accident_date = last_accident_date.strftime("%d/%m/%Y")
+        else:
+            # Si aucun accident enregistré, compter depuis la plus ancienne soumission
+            if all_submissions:
+                dates_parsed = [_parse_date_audit(s.date_audit) for s in all_submissions]
+                valid_dates = [d for d in dates_parsed if d]
+                if valid_dates:
+                    oldest = min(valid_dates)
+                    result.jours_sans_accident = (today - oldest).days
+                    result.dernier_accident_date = "Aucun accident enregistré"
 
     # ------------------------------------------------------------------
     # 7. Évolution de la conformité (par date_audit triée)

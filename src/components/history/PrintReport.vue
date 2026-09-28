@@ -257,13 +257,13 @@ const thStyle = { padding: '6px 6px', borderBottom: '2px solid #cbd5e1', backgro
             <td v-for="m in monthsList" :key="m" :style="cellStyle">{{ items.mois?.[m]?.tf ?? 0 }}</td>
             <td :style="{ ...cellStyle, fontWeight: '900' }">{{ items.totaux?.tf_moyen ?? 0 }}</td>
           </tr>
-          <!-- IF : Indice de Fréquence (Cible 2.5) -->
+          <!-- IF : Indice de Fréquence (Cible dynamique) -->
           <tr style="font-weight: 700; color: #9333ea;">
-            <td :style="{ ...cellStyle, textAlign: 'left' }">Indice de Fréquence (IF) [Cible 2.5]</td>
-            <td v-for="m in monthsList" :key="m" :style="{ ...cellStyle, color: (items.mois?.[m]?.if_val || 0) > 2.5 ? '#dc2626' : '#16a34a' }">
+            <td :style="{ ...cellStyle, textAlign: 'left' }">Indice de Fréquence (IF) [Cible: {{ items.target_if || 2.5 }}]</td>
+            <td v-for="m in monthsList" :key="m" :style="{ ...cellStyle, color: (items.mois?.[m]?.if_val || 0) > (items.target_if || 2.5) ? '#dc2626' : '#16a34a' }">
               {{ items.mois?.[m]?.if_val ?? 0 }}
             </td>
-            <td :style="{ ...cellStyle, fontWeight: '900', color: (items.totaux?.if_moyen || 0) > 2.5 ? '#dc2626' : '#16a34a' }">
+            <td :style="{ ...cellStyle, fontWeight: '900', color: (items.totaux?.if_moyen || 0) > (items.target_if || 2.5) ? '#dc2626' : '#16a34a' }">
               {{ items.totaux?.if_moyen ?? 0 }}
             </td>
           </tr>

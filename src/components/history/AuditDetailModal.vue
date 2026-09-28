@@ -172,13 +172,13 @@ const monthsList = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juil
                 <td v-for="m in monthsList" :key="m" style="padding: 6px;">{{ items.mois?.[m]?.tf ?? 0 }}</td>
                 <td style="padding: 8px; font-weight: 800;">{{ items.totaux?.tf_moyen ?? 0 }}</td>
               </tr>
-              <!-- Indice de Fréquence IF (Alerte si > cible 2.5) -->
+              <!-- Indice de Fréquence IF (Alerte si > cible) -->
               <tr style="font-weight: 700; color: #a855f7;">
-                <td style="padding: 8px; text-align: left;">Indice de Fréquence (IF) [Cible: 2.5]</td>
-                <td v-for="m in monthsList" :key="m" :style="{ padding: '6px', color: (items.mois?.[m]?.if_val || 0) > 2.5 ? '#ef4444' : '#10b981' }">
+                <td style="padding: 8px; text-align: left;">Indice de Fréquence (IF) [Cible: {{ items.target_if || 2.5 }}]</td>
+                <td v-for="m in monthsList" :key="m" :style="{ padding: '6px', color: (items.mois?.[m]?.if_val || 0) > (items.target_if || 2.5) ? '#ef4444' : '#10b981' }">
                   {{ items.mois?.[m]?.if_val ?? 0 }}
                 </td>
-                <td :style="{ padding: '8px', fontWeight: '800', color: (items.totaux?.if_moyen || 0) > 2.5 ? '#ef4444' : '#10b981' }">
+                <td :style="{ padding: '8px', fontWeight: '800', color: (items.totaux?.if_moyen || 0) > (items.target_if || 2.5) ? '#ef4444' : '#10b981' }">
                   {{ items.totaux?.if_moyen ?? 0 }}
                 </td>
               </tr>
