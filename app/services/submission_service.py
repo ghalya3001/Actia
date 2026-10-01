@@ -198,7 +198,6 @@ class SubmissionService:
                 nb_permis_hauteur=int(items_d.get("permis_hauteur") or 0),
                 nb_permis_feu=int(items_d.get("permis_feu") or 0),
                 remarques_specifiques=str(items_d.get("remarques") or ""),
-                dynamic_fields=items_d.get("dynamic_fields") or None,
             )
             db.add(submission)
             db.flush()
@@ -634,7 +633,6 @@ class SubmissionService:
                 if "remarques" in items_d:
                     sub.remarques_specifiques = str(items_d["remarques"] or "")
                 if "dynamic_fields" in items_d:
-                    sub.dynamic_fields = items_d["dynamic_fields"]
                     cls._save_custom_field_values(db, sub.id, items_d["dynamic_fields"])
             elif isinstance(sub, AccidentTravailSubmission):
                 items_d = update_data["items_data"]
@@ -773,10 +771,6 @@ class SubmissionService:
                             "unit": fdef.unit or "",
                             "isCustom": True,
                         })
-
-            # Repli sur le JSON historique si aucune valeur relationnelle
-            if not cf_list:
-                cf_list = sub.dynamic_fields or []
 
             data["items_data"] = {
                 "plan_prevention": sub.nb_plan_prevention,

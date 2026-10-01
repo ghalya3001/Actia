@@ -238,14 +238,83 @@ const addSelectedField = () => {
   selectedFieldToAdd.value = '';
 };
 
+// État de confirmation pour la suppression sécurisée d'un champ
+const showDeleteConfirmModal = ref(false);
+const fieldToDelete = ref(null);
+const isDeletingField = ref(false);
+
 /**
- * Supprime un champ du formulaire dynamique.
+ * Ouvre la boîte de dialogue de confirmation avant suppression.
  */
-const removePermisField = (index) => {
-  const removed = permisFields.value[index];
-  permisFields.value.splice(index, 1);
-  if (removed) {
-    emit('showToast', `Champ "${removed.label}" supprimé du formulaire.`);
+const confirmRemovePermisField = (index) => {
+  const field = permisFields.value[index];
+  if (!field) return;
+  fieldToDelete.value = { ...field, index };
+  showDeleteConfirmModal.value = true;
+};
+
+/**
+ * Annule la suppression et ferme la modale.
+ */
+const cancelRemovePermisField = () => {
+  if (isDeletingField.value) return;
+  showDeleteConfirmModal.value = false;
+  fieldToDelete.value = null;
+};
+
+/**
+ * Supprime définitivement le champ après confirmation explicite de l'utilisateur.
+ * - Le champ est retiré de la fiche active (permisFields)
+ * - S'il est personnalisé : il est retiré du catalogue (availablePermisFields)
+ *   et supprimé de la base de données (custom_field_definitions) pour ne JAMAIS réapparaître.
+ */
+const executeRemovePermisField = async () => {
+  if (!fieldToDelete.value) return;
+
+  const target = fieldToDelete.value;
+  const targetIndex = target.index;
+  const label = target.label;
+  const fieldId = target.fieldId;
+  const isCustom = !!target.isCustom;
+
+  isDeletingField.value = true;
+
+  try {
+    // 1. Retrait de la fiche en cours de saisie
+    if (targetIndex >= 0 && targetIndex < permisFields.value.length) {
+      permisFields.value.splice(targetIndex, 1);
+    } else {
+      permisFields.value = permisFields.value.filter(
+        f => f.fieldId !== fieldId && f.label.toLowerCase() !== label.toLowerCase()
+      );
+    }
+
+    // 2. Si champ personnalisé : retrait du catalogue disponible et suppression persistante en BDD
+    if (isCustom) {
+      // Retrait immédiat de la liste locale pour ne plus le proposer dans la sélection
+      availablePermisFields.value = availablePermisFields.value.filter(
+        af => af.fieldId !== fieldId && af.label.toLowerCase() !== label.toLowerCase()
+      );
+
+      // Appel API DELETE pour le supprimer définitivement de la base de données
+      const token = localStorage.getItem('access_token') || localStorage.getItem('token') || sessionStorage.getItem('token');
+      const identifier = fieldId || encodeURIComponent(label);
+      await fetch(`${API_CUSTOM_FIELDS}/definitions/${identifier}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+    }
+
+    emit('showToast', `Champ "${label}" supprimé définitivement.`, 'success');
+  } catch (err) {
+    console.error('Erreur lors de la suppression définitive du champ:', err);
+    emit('showToast', `Le champ a été retiré de la fiche.`, 'warning');
+  } finally {
+    isDeletingField.value = false;
+    showDeleteConfirmModal.value = false;
+    fieldToDelete.value = null;
   }
 };
 
@@ -273,7 +342,7 @@ const API_CUSTOM_FIELDS = window.location.origin + '/api/v1/custom-fields';
  */
 const loadCustomFieldDefinitions = async () => {
   try {
-    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+    const token = localStorage.getItem('access_token') || localStorage.getItem('token') || sessionStorage.getItem('token');
     const res = await fetch(`${API_CUSTOM_FIELDS}/definitions?form_type=permis_travail`, {
       headers: {
         'Authorization': `Bearer ${token}`
@@ -282,14 +351,34 @@ const loadCustomFieldDefinitions = async () => {
     if (res.ok) {
       const defs = await res.json();
       defs.forEach(d => {
-        if (!availablePermisFields.value.some(af => af.label.toLowerCase() === d.name.toLowerCase())) {
+        const isStandard = ['plan_prevention', 'permis_hauteur', 'permis_feu'].includes(d.name.toLowerCase().replace(/ /g, '_'));
+        const fieldId = isStandard ? d.name.toLowerCase().replace(/ /g, '_') : `custom_${d.id}`;
+
+        // Enregistrer dans le catalogue availablePermisFields
+        const existing = availablePermisFields.value.find(af => af.fieldId === fieldId || af.label.toLowerCase() === d.name.toLowerCase());
+        if (!existing) {
           availablePermisFields.value.push({
-            fieldId: `custom_${d.id}`,
+            fieldId: fieldId,
             label: d.name,
             type: d.field_type === 'numeric' ? 'numeric' : 'char',
             unit: d.unit || '',
-            isCustom: true
+            isCustom: !isStandard
           });
+        }
+
+        // Si nous sommes en mode création d'un nouveau permis (fiche vierge),
+        // inclure directement le champ personnalisé dans les champs actifs du formulaire !
+        if (isPermis.value && !props.editingAudit && !isStandard) {
+          if (!permisFields.value.some(pf => pf.fieldId === fieldId || pf.label.toLowerCase() === d.name.toLowerCase())) {
+            permisFields.value.push({
+              fieldId: fieldId,
+              label: d.name,
+              type: d.field_type === 'numeric' ? 'numeric' : 'char',
+              value: d.field_type === 'numeric' ? 0 : '',
+              unit: d.unit || '',
+              isCustom: true
+            });
+          }
         }
       });
     }
@@ -336,7 +425,7 @@ const submitCustomField = () => {
 
   // Sauvegarde dans le catalogue partagé du backend pour que tous les managers y aient accès
   try {
-    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+    const token = localStorage.getItem('access_token') || localStorage.getItem('token') || sessionStorage.getItem('token');
     fetch(`${API_CUSTOM_FIELDS}/definitions`, {
       method: 'POST',
       headers: {
@@ -354,6 +443,8 @@ const submitCustomField = () => {
       .then(savedDef => {
         if (savedDef && savedDef.id) {
           newField.fieldId = `custom_${savedDef.id}`;
+          const current = permisFields.value.find(f => f.label.toLowerCase() === newField.label.toLowerCase());
+          if (current) current.fieldId = `custom_${savedDef.id}`;
         }
       })
       .catch(err => console.warn('Could not save custom field definition:', err));
@@ -610,12 +701,29 @@ watch(
         targetIF.value = getInitialTargetIF();
       } else if (isPermis.value) {
         // Initialiser avec les 3 permis fondamentaux
-        permisFields.value = [
+        const basePermis = [
           { fieldId: 'plan_prevention', label: 'Plan de Prévention', type: 'numeric', value: 0, unit: 'Plans établis', isCustom: false },
           { fieldId: 'permis_hauteur', label: 'Permis Travail en Hauteur', type: 'numeric', value: 0, unit: 'Permis délivrés', isCustom: false },
           { fieldId: 'permis_feu', label: 'Permis de Feu', type: 'numeric', value: 0, unit: 'Permis délivrés', isCustom: false }
         ];
+        // Ajouter tous les champs personnalisés déjà connus dans availablePermisFields
+        availablePermisFields.value
+          .filter(f => f.isCustom)
+          .forEach(cf => {
+            if (!basePermis.some(b => b.fieldId === cf.fieldId || b.label.toLowerCase() === cf.label.toLowerCase())) {
+              basePermis.push({
+                fieldId: cf.fieldId,
+                label: cf.label,
+                type: cf.type,
+                value: cf.type === 'numeric' ? 0 : '',
+                unit: cf.unit || '',
+                isCustom: true
+              });
+            }
+          });
+        permisFields.value = basePermis;
         selectedFieldToAdd.value = '';
+        loadCustomFieldDefinitions();
       } else {
         Object.keys(answers).forEach(k => delete answers[k]);
         questionsData.value.forEach(q => {
@@ -1244,11 +1352,21 @@ const isTargetStepForQuestion = (q, step) => {
       </div>
 
       <!-- =================================================================== -->
-      <!-- BARRE D'ACTION : CRÉATION DE CHAMP PERSONNALISÉ                    -->
+      <!-- BARRE D'ACTION : CATALOGUE & CRÉATION DE CHAMP PERSONNALISÉ         -->
       <!-- =================================================================== -->
       <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 1.75rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
-        <div style="font-size: 0.85rem; color: #475569; font-weight: 600;">
-          Renseignez les permis requis ou ajoutez de nouveaux champs personnalisés selon les exigences du chantier :
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <span style="font-size: 0.85rem; color: #475569; font-weight: 700;">Ajouter un champ du catalogue :</span>
+          <select 
+            v-model="selectedFieldToAdd"
+            @change="addSelectedField"
+            style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 12px; font-size: 0.84rem; font-weight: 700; color: #1e293b; min-width: 250px; cursor: pointer;"
+          >
+            <option value="">-- Choisir un champ du catalogue --</option>
+            <option v-for="f in unselectedPermisFields" :key="f.fieldId" :value="f.fieldId">
+              {{ f.label }} ({{ f.type === 'numeric' ? 'Numérique' : 'Texte' }}) {{ f.isCustom ? '★ Personnalisé' : '' }}
+            </option>
+          </select>
         </div>
 
         <!-- Bouton Création de Champ Personnalisé -->
@@ -1314,11 +1432,11 @@ const isTargetStepForQuestion = (q, step) => {
               </span>
             </div>
 
-            <!-- Bouton Supprimer le champ -->
+            <!-- Bouton Supprimer le champ avec confirmation préalable -->
             <button 
               type="button" 
-              @click="removePermisField(idx)" 
-              title="Supprimer ce champ de la fiche"
+              @click="confirmRemovePermisField(idx)" 
+              title="Supprimer ce champ"
               style="background: transparent; border: none; color: #94a3b8; cursor: pointer; padding: 4px; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: color 0.15s, background 0.15s;"
               onmouseover="this.style.color='#ef4444'; this.style.background='#fee2e2';"
               onmouseout="this.style.color='#94a3b8'; this.style.background='transparent';"
@@ -1508,6 +1626,81 @@ const isTargetStepForQuestion = (q, step) => {
             </button>
           </div>
 
+        </div>
+
+      </div>
+    </div>
+
+    <!-- =================================================================== -->
+    <!-- MODAL DE CONFIRMATION DE SUPPRESSION DE CHAMP                       -->
+    <!-- =================================================================== -->
+    <div 
+      v-if="showDeleteConfirmModal" 
+      style="position: fixed; inset: 0; background: rgba(15,23,42,0.65); backdrop-filter: blur(4px); z-index: 10000; display: flex; align-items: center; justify-content: center; padding: 1rem;"
+    >
+      <div style="background: #ffffff; border-radius: 14px; width: 100%; max-width: 440px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.3); border: 1px solid #fee2e2; overflow: hidden;">
+        
+        <!-- En-tête Modal Danger -->
+        <div style="background: #ef4444; color: #ffffff; padding: 1.15rem 1.4rem; display: flex; align-items: center; justify-content: space-between;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <AlertTriangle :size="20" color="#ffffff" />
+            <h4 style="font-size: 1rem; font-weight: 800; margin: 0; color: #ffffff;">Supprimer ce champ ?</h4>
+          </div>
+          <button 
+            type="button" 
+            @click="cancelRemovePermisField"
+            :disabled="isDeletingField"
+            style="background: transparent; border: none; color: rgba(255,255,255,0.8); cursor: pointer; padding: 4px; display: flex; align-items: center;"
+            onmouseover="this.style.color='#fff';"
+            onmouseout="this.style.color='rgba(255,255,255,0.8)';"
+          >
+            <X :size="20" />
+          </button>
+        </div>
+
+        <!-- Corps Modal -->
+        <div style="padding: 1.4rem;">
+          <div style="display: flex; gap: 14px; align-items: flex-start;">
+            <div style="width: 44px; height: 44px; border-radius: 12px; background: #fee2e2; color: #dc2626; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+              <Trash2 :size="22" />
+            </div>
+            <div>
+              <div style="font-size: 0.95rem; font-weight: 700; color: #0f172a; margin-bottom: 6px;">
+                Suppression du champ <span style="color: #dc2626;">« {{ fieldToDelete?.label }} »</span>
+              </div>
+              <p style="font-size: 0.82rem; color: #64748b; margin: 0 0 10px 0; line-height: 1.45;">
+                Êtes-vous sûr de vouloir supprimer ce champ de la fiche ?
+              </p>
+              
+              <div v-if="fieldToDelete?.isCustom" style="background: #fffbeb; border: 1px solid #fef3c7; border-left: 3px solid #f59e0b; padding: 8px 10px; border-radius: 6px; font-size: 0.75rem; color: #92400e; line-height: 1.4;">
+                ⚠️ <strong>Champ personnalisé :</strong> Il sera supprimé définitivement du catalogue et ne réapparaîtra plus lors des prochaines ouvertures de formulaires.
+              </div>
+            </div>
+          </div>
+
+          <!-- Actions -->
+          <div style="margin-top: 1.4rem; display: flex; justify-content: flex-end; gap: 10px;">
+            <button 
+              type="button" 
+              @click="cancelRemovePermisField"
+              :disabled="isDeletingField"
+              style="background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; font-weight: 700; padding: 8px 16px; border-radius: 8px; font-size: 0.85rem; cursor: pointer;"
+              onmouseover="this.style.background='#e2e8f0';"
+              onmouseout="this.style.background='#f1f5f9';"
+            >
+              Annuler
+            </button>
+            <button 
+              type="button" 
+              @click="executeRemovePermisField"
+              :disabled="isDeletingField"
+              style="background: #ef4444; color: #ffffff; border: none; font-weight: 800; padding: 8px 18px; border-radius: 8px; font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 8px rgba(239,68,68,0.3);"
+              onmouseover="this.style.background='#dc2626';"
+              onmouseout="this.style.background='#ef4444';"
+            >
+              <Trash2 :size="15" /> {{ isDeletingField ? 'Suppression...' : 'Supprimer définitivement' }}
+            </button>
+          </div>
         </div>
 
       </div>

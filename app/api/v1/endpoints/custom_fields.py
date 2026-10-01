@@ -18,6 +18,7 @@ Rôle :
 
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from datetime import datetime
@@ -170,3 +171,56 @@ def get_custom_field_values(
             text_value=v.text_value,
         ))
     return result
+
+
+# =============================================================================
+# 4. SUPPRIMER UNE DÉFINITION DE CHAMP PERSONNALISÉ DU CATALOGUE
+# =============================================================================
+@router.delete(
+    "/definitions/{identifier}",
+    status_code=status.HTTP_200_OK,
+    summary="Supprime définitivement un champ personnalisé du catalogue",
+)
+def delete_custom_field_definition(
+    identifier: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Supprime un champ personnalisé par son ID (ex: '4' ou 'custom_4') ou par son nom exact.
+    Assure qu'il ne réapparaît plus jamais dans le formulaire ou le catalogue.
+    """
+    field_def = None
+
+    # 1. Recherche par identifiant numérique
+    raw_id = identifier.replace("custom_", "").strip()
+    if raw_id.isdigit():
+        field_def = db.query(CustomFieldDefinition).filter(
+            CustomFieldDefinition.id == int(raw_id)
+        ).first()
+
+    # 2. Si non trouvé par ID, recherche par nom exact (insensible à la casse)
+    if not field_def:
+        field_def = db.query(CustomFieldDefinition).filter(
+            func.lower(CustomFieldDefinition.name) == identifier.strip().lower(),
+            CustomFieldDefinition.form_type == "permis_travail"
+        ).first()
+
+    if not field_def:
+        return {
+            "deleted": True,
+            "message": "Le champ a été retiré (aucun enregistrement persistant en base)."
+        }
+
+    def_name = field_def.name
+    def_id = field_def.id
+    db.delete(field_def)
+    db.commit()
+
+    return {
+        "deleted": True,
+        "id": def_id,
+        "name": def_name,
+        "message": f"Champ personnalisé '{def_name}' supprimé définitivement du catalogue."
+    }
+

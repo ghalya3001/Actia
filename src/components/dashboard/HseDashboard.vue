@@ -483,10 +483,64 @@ const applyPreset = (preset) => {
   applyDateFilters()
 }
 
+let yearDebounceTimer = null
+
+/**
+ * Gestionnaire de saisie manuelle de l'année (avec debounce)
+ */
+const handleYearInput = () => {
+  activePreset.value = 'custom'
+  clearTimeout(yearDebounceTimer)
+  
+  if (!filterYear.value) {
+    yearDebounceTimer = setTimeout(() => {
+      filterYear.value = null
+      applyDateFilters()
+    }, 450)
+    return
+  }
+
+  const yStr = String(filterYear.value).trim()
+  if (yStr.length === 4) {
+    const yNum = parseInt(yStr, 10)
+    if (!isNaN(yNum) && yNum >= 1900 && yNum <= 2100) {
+      yearDebounceTimer = setTimeout(() => {
+        applyDateFilters()
+      }, 400)
+    }
+  }
+}
+
+/**
+ * Validation finale sur perte de focus ou validation Entrée
+ */
+const handleYearChange = () => {
+  clearTimeout(yearDebounceTimer)
+  activePreset.value = 'custom'
+  if (!filterYear.value || isNaN(Number(filterYear.value))) {
+    filterYear.value = null
+  } else {
+    const y = parseInt(filterYear.value, 10)
+    filterYear.value = (y >= 1900 && y <= 2100) ? y : null
+  }
+  applyDateFilters()
+}
+
+/**
+ * Effacer spécifiquement le filtre par année
+ */
+const clearYearFilter = () => {
+  clearTimeout(yearDebounceTimer)
+  filterYear.value = null
+  activePreset.value = 'custom'
+  applyDateFilters()
+}
+
 /**
  * Réinitialiser tous les filtres de date
  */
 const resetDateFilters = () => {
+  clearTimeout(yearDebounceTimer)
   filterYear.value = null
   filterMonth.value = null
   filterDateDebut.value = ''
@@ -948,19 +1002,6 @@ const radarVigilance = computed(() => {
 
           <button
             type="button"
-            @click="applyPreset('current_year')"
-            :style="{
-              background: (filterYear === 2026 && !filterMonth && !filterDateDebut) ? 'var(--color-primary)' : 'rgba(255,255,255,0.06)',
-              color: (filterYear === 2026 && !filterMonth && !filterDateDebut) ? '#001c24' : '#cbd5e1',
-              borderColor: (filterYear === 2026 && !filterMonth && !filterDateDebut) ? 'var(--color-primary)' : 'rgba(255,255,255,0.1)'
-            }"
-            style="border: 1px solid; padding: 4px 12px; border-radius: 20px; font-size: 0.76rem; font-weight: 700; cursor: pointer; transition: all 0.2s ease;"
-          >
-            Année 2026
-          </button>
-
-          <button
-            type="button"
             @click="applyPreset('current_month')"
             :style="{
               background: (filterMonth === (new Date().getMonth() + 1)) ? 'var(--color-primary)' : 'rgba(255,255,255,0.06)',
@@ -970,19 +1011,6 @@ const radarVigilance = computed(() => {
             style="border: 1px solid; padding: 4px 12px; border-radius: 20px; font-size: 0.76rem; font-weight: 700; cursor: pointer; transition: all 0.2s ease;"
           >
             Ce Mois-ci
-          </button>
-
-          <button
-            type="button"
-            @click="applyPreset('last_quarter')"
-            :style="{
-              background: activePreset === 'last_quarter' ? 'var(--color-primary)' : 'rgba(255,255,255,0.06)',
-              color: activePreset === 'last_quarter' ? '#001c24' : '#cbd5e1',
-              borderColor: activePreset === 'last_quarter' ? 'var(--color-primary)' : 'rgba(255,255,255,0.1)'
-            }"
-            style="border: 1px solid; padding: 4px 12px; border-radius: 20px; font-size: 0.76rem; font-weight: 700; cursor: pointer; transition: all 0.2s ease;"
-          >
-            Trimestre
           </button>
 
           <button
@@ -1020,18 +1048,34 @@ const radarVigilance = computed(() => {
         
         <!-- BLOC 1 : Navigation par Année & Mois -->
         <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-          <!-- Choix Année (liste complète 2015 à 2035) -->
+          <!-- Saisie manuelle de l'Année (saisie libre au clavier au lieu d'une liste déroulante) -->
           <div style="display: flex; align-items: center; gap: 6px;">
-            <label style="font-size: 0.78rem; color: var(--text-muted); font-weight: 700;">Année :</label>
-            <select
-              v-model="filterYear"
-              @change="() => { activePreset = 'custom'; applyDateFilters() }"
-              class="form-input"
-              style="background: rgba(0,28,36,0.95); border: 1px solid rgba(0, 201, 150, 0.3); color: #fff; padding: 6px 12px; border-radius: var(--radius-sm); font-size: 0.82rem; font-weight: 700; cursor: pointer; min-width: 100px;"
-            >
-              <option :value="null">Toutes les années</option>
-              <option v-for="y in availableYears" :key="y" :value="y">{{ y }}</option>
-            </select>
+            <label style="font-size: 0.78rem; color: var(--text-muted); font-weight: 700; white-space: nowrap;">Année :</label>
+            <div style="position: relative; display: flex; align-items: center;">
+              <input
+                type="number"
+                v-model.number="filterYear"
+                @input="handleYearInput"
+                @change="handleYearChange"
+                @keyup.enter="handleYearChange"
+                placeholder="ex: 2026"
+                min="1990"
+                max="2100"
+                step="1"
+                class="form-input"
+                style="background: rgba(0,28,36,0.95); border: 1px solid rgba(0, 201, 150, 0.35); color: #fff; padding: 6px 26px 6px 10px; border-radius: var(--radius-sm); font-size: 0.82rem; font-weight: 700; width: 110px; transition: all 0.2s ease;"
+                title="Saisissez manuellement une année (ex: 2026, 2024...) ou effacez pour toutes les années"
+              />
+              <button
+                v-if="filterYear"
+                type="button"
+                @click="clearYearFilter"
+                style="position: absolute; right: 6px; background: rgba(255,255,255,0.12); border: none; color: #cbd5e1; border-radius: 50%; width: 16px; height: 16px; font-size: 0.7rem; cursor: pointer; display: flex; align-items: center; justify-content: center; line-height: 1; transition: all 0.15s ease;"
+                title="Effacer le filtre année (Toutes les années)"
+              >
+                ✕
+              </button>
+            </div>
           </div>
 
           <!-- Choix Mois -->

@@ -16,7 +16,7 @@ from app.models.dashboard import KPISnapshot, DashboardWidget, KPIDefinition
 
 
 def get_auth_token(client, db_session=None):
-    from app.models.user import User, UserStatus
+    from app.models.user import User, UserStatus, UserRole
     reg = {
         "email": "test_submissions@platformactia.com",
         "full_name": "Test Submissions Manager",
@@ -27,6 +27,7 @@ def get_auth_token(client, db_session=None):
         user = db_session.query(User).filter(User.email == reg["email"]).first()
         if user:
             user.status = UserStatus.APPROVED.value
+            user.role = UserRole.ADMIN.value
             db_session.commit()
     resp = client.post("/api/v1/auth/login", data={"username": reg["email"], "password": reg["password"]})
     return resp.json()["access_token"]

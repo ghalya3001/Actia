@@ -278,9 +278,6 @@ class PermisTravailSubmission(FormSubmission):
     # Remarques particulières et mesures de sécurité spécifiques prescrites
     remarques_specifiques = Column(Text, nullable=True)
 
-    # Champs dynamiques personnalisés et standards configurés (liste JSON)
-    dynamic_fields = Column(JSON, nullable=True)
-
     __mapper_args__ = {
         "polymorphic_identity": "permis_travail",
     }
